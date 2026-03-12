@@ -24,7 +24,7 @@ export default function RedirectPage() {
   // Search for the QR ID globally across all user sub-collections
   const qrQuery = useMemoFirebase(() => {
     if (!db || !qrId) return null;
-    console.log(`[REDIRECT_LOG] Searching for QR ID: ${qrId}`);
+    console.log(`[REDIRECT_LOG] Initiating lookup for QR ID: ${qrId}`);
     return query(
       collectionGroup(db, 'qr_codes'),
       where('id', '==', qrId),
@@ -45,25 +45,26 @@ export default function RedirectPage() {
 
     // Handle case where query finished but no record was found
     if (data.length === 0) {
-      console.warn(`[REDIRECT_WARN] No record found for ID: ${qrId}`);
+      console.warn(`[REDIRECT_WARN] No record found in database for ID: ${qrId}`);
       setErrorStatus("not_found");
       return;
     }
 
     const qr = data[0];
-    console.log(`[REDIRECT_LOG] Found QR record:`, qr);
+    console.log(`[REDIRECT_LOG] Found QR record successfully. Status: ${qr.status}`);
 
     if (qr.status === 'active') {
       setHasTracked(true);
 
       // Non-blocking analytics update
+      // We use the full path gathered from the collection group result
       if (db && qr.userId) {
         const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
         updateDoc(qrRef, {
           totalScans: increment(1),
           lastScannedAt: serverTimestamp()
         }).catch((err) => {
-          console.warn("[TRACKING_ERROR] Silent catch to prevent redirect blocking", err);
+          console.warn("[TRACKING_ERROR] Failed to update scan count, but proceeding with redirect", err);
         });
       }
 
@@ -87,9 +88,16 @@ export default function RedirectPage() {
       <main className="flex-1 container mx-auto px-4 flex flex-col items-center justify-center">
         {isLoading && !errorStatus ? (
           <div className="flex flex-col items-center gap-6 animate-in fade-in duration-700">
-            <Loader2 className="h-16 w-16 animate-spin text-primary/40" />
-            <h2 className="text-2xl font-bold text-primary font-headline">Redirecting...</h2>
-            <p className="text-muted-foreground text-sm">Validating your secure link.</p>
+            <div className="relative">
+              <Loader2 className="h-16 w-16 animate-spin text-primary" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-2 w-2 bg-primary rounded-full animate-ping" />
+              </div>
+            </div>
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl font-bold text-primary font-headline">Redirecting...</h2>
+              <p className="text-muted-foreground text-sm">Please wait while we connect you securely.</p>
+            </div>
           </div>
         ) : errorStatus ? (
           <div className="max-w-md w-full p-8 bg-card border border-primary/10 rounded-[2.5rem] shadow-2xl text-center animate-in zoom-in-95 duration-300">

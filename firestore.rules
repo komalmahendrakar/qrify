@@ -26,8 +26,8 @@ service cloud.firestore {
         allow get: if true;
         allow list: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
 
-        // Creation restricted to owner or admin
-        allow create: if (isSignedIn() && request.resource.data.userId == request.auth.uid) || isAdmin();
+        // Creation is public to allow anonymous generation
+        allow create: if true;
 
         // Public can ONLY update scan counts for active QR codes. 
         // Admins have full update rights.
@@ -51,8 +51,10 @@ service cloud.firestore {
     // CRITICAL: This allows the /r/[qrId] redirect engine to perform public lookups
     // across all sub-collections without needing to know the parent userId.
     match /{path=**}/qr_codes/{qrCodeId} {
-      // 'read' allows both 'get' and 'list' (queries)
+      // 'read' allows both 'get' and 'list' (queries) for redirection logic
       allow read: if true;
+      // Allow creation for anonymous generators
+      allow create: if true;
     }
   }
 }
