@@ -23,10 +23,25 @@ const SuggestQrCodeDescriptionOutputSchema = z.object({
 });
 export type SuggestQrCodeDescriptionOutput = z.infer<typeof SuggestQrCodeDescriptionOutputSchema>;
 
+/**
+ * Suggests a description for a QR code's embedded URL.
+ * Includes a safety fallback to prevent Server Action crashes if AI fails.
+ */
 export async function suggestQrCodeDescription(
   input: SuggestQrCodeDescriptionInput
 ): Promise<SuggestQrCodeDescriptionOutput> {
-  return suggestQrCodeDescriptionFlow(input);
+  try {
+    return await suggestQrCodeDescriptionFlow(input);
+  } catch (error) {
+    console.error("[AI_FLOW_ERROR] suggestQrCodeDescription failed:", error);
+    // Fallback: Generate a simple title from the domain
+    try {
+      const domain = new URL(input.url).hostname.replace('www.', '');
+      return { summary: `Link to ${domain}` };
+    } catch {
+      return { summary: "New QR Code" };
+    }
+  }
 }
 
 const prompt = ai.definePrompt({
@@ -48,6 +63,7 @@ const suggestQrCodeDescriptionFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    if (!output) throw new Error("AI failed to produce output");
+    return output;
   }
 );

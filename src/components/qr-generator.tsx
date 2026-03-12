@@ -65,13 +65,11 @@ export function QRGenerator() {
     setIsGenerating(true);
     setSaveId(null);
     
-    // 1. Generate a new unique ID for the dynamic redirect
     const newId = crypto.randomUUID();
     const baseUrl = getBaseUrl();
     const newRedirectUrl = `${baseUrl}/r/${newId}`;
     
     try {
-      // 2. Generate the QR code using the redirect URL, not the original URL
       const result = await generateStyledQrCode({ 
         url: newRedirectUrl, 
         stylePrompt: stylePrompt.trim() || "classic minimalist" 
@@ -83,6 +81,7 @@ export function QRGenerator() {
       setLastGeneratedAt(Date.now());
       toast({ title: "QR Code Generated", description: "Dynamic redirect code is ready." });
     } catch (error) {
+      console.error("[GENERATION_ERROR]", error);
       toast({ variant: "destructive", title: "Generation failed", description: "Something went wrong while creating your QR code." });
     } finally {
       setIsGenerating(false);
@@ -98,6 +97,8 @@ export function QRGenerator() {
     setIsSaving(true);
     try {
       const trimmedUrl = url.trim();
+      
+      // AI title suggestion with built-in fallback to domain if AI fails (prevents 500)
       const { summary } = await suggestQrCodeDescription({ url: trimmedUrl });
       
       const qrCodeRef = doc(db, 'users', user.uid, 'qr_codes', qrCodeId);
@@ -106,29 +107,26 @@ export function QRGenerator() {
         id: qrCodeId,
         originalUrl: trimmedUrl,
         qrCodeImageUrl: qrCodeDataUri,
-        title: summary,
+        title: summary || "My QR Code",
         createdAt: serverTimestamp(),
-        status: 'active', // Default to active immediately
+        status: 'active',
         userId: user.uid,
         totalScans: 0,
       };
 
-      setDoc(qrCodeRef, data)
-        .then(() => {
-          setSaveId(qrCodeId);
-          setSavedUserId(user.uid);
-          toast({ title: "Saved!", description: `Dynamic QR saved: ${summary}` });
-        })
-        .catch(async (error) => {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({
-            path: qrCodeRef.path,
-            operation: 'create',
-            requestResourceData: data,
-          }));
-        });
+      await setDoc(qrCodeRef, data);
+      
+      setSaveId(qrCodeId);
+      setSavedUserId(user.uid);
+      toast({ title: "Saved!", description: `Dynamic QR saved: ${summary}` });
 
-    } catch (error) {
-      toast({ variant: "destructive", title: "Save failed", description: "Could not process save." });
+    } catch (error: any) {
+      console.error("[SAVE_ERROR]", error);
+      toast({ 
+        variant: "destructive", 
+        title: "Save failed", 
+        description: error?.message || "Could not process save. Ensure your database is connected." 
+      });
     } finally {
       setIsSaving(false);
     }
