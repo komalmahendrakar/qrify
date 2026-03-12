@@ -7,8 +7,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Loader2, Download, Save, RefreshCw, Wand2, Globe, QrCode } from "lucide-react";
 import { generateStyledQrCode } from "@/ai/flows/generate-styled-qr-code";
 import { suggestQrCodeDescription } from "@/ai/flows/suggest-qr-code-description-flow";
-import { saveQRCode } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
+import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from "@/firebase";
+import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export function QRGenerator() {
   const [url, setUrl] = useState("");
@@ -17,6 +18,8 @@ export function QRGenerator() {
   const [isSaving, setIsSaving] = useState(false);
   const [qrCodeDataUri, setQrCodeDataUri] = useState<string | null>(null);
   const { toast } = useToast();
+  const db = useFirestore();
+  const { user } = useUser();
 
   const validateUrl = (string: string) => {
     try {
@@ -63,7 +66,7 @@ export function QRGenerator() {
       toast({
         variant: "destructive",
         title: "Generation failed",
-        description: "Something went wrong while creating your QR code. Please try a simpler style.",
+        description: "Something went wrong while creating your QR code.",
       });
     } finally {
       setIsGenerating(false);
@@ -71,24 +74,49 @@ export function QRGenerator() {
   };
 
   const handleSave = async () => {
-    if (!qrCodeDataUri || !url) return;
+    if (!qrCodeDataUri || !url || !user || !db) {
+      if (!user) toast({ variant: "destructive", title: "Auth required", description: "You must be signed in to save." });
+      return;
+    }
+    
     setIsSaving(true);
     try {
       const { summary } = await suggestQrCodeDescription({ url });
-      await saveQRCode({
-        url,
-        qrCodeDataUri,
+      
+      const qrCodeId = crypto.randomUUID();
+      const qrCodeRef = doc(db, 'users', user.uid, 'qr_codes', qrCodeId);
+      
+      const data = {
+        id: qrCodeId,
+        originalUrl: url,
+        qrCodeImageUrl: qrCodeDataUri, // Using generic image field for base64
         title: summary,
-      });
-      toast({
-        title: "Saved!",
-        description: `QR code for ${summary} has been saved to your dashboard.`,
-      });
+        createdAt: serverTimestamp(),
+        status: 'active',
+        userId: user.uid,
+      };
+
+      setDoc(qrCodeRef, data)
+        .then(() => {
+          toast({
+            title: "Saved!",
+            description: `QR code for ${summary} has been saved to your dashboard.`,
+          });
+        })
+        .catch(async (error) => {
+          const permissionError = new FirestorePermissionError({
+            path: qrCodeRef.path,
+            operation: 'create',
+            requestResourceData: data,
+          });
+          errorEmitter.emit('permission-error', permissionError);
+        });
+
     } catch (error) {
       toast({
         variant: "destructive",
         title: "Save failed",
-        description: "Could not save your QR code.",
+        description: "Could not process your QR code for saving.",
       });
     } finally {
       setIsSaving(false);
@@ -99,8 +127,6 @@ export function QRGenerator() {
     if (!qrCodeDataUri) return;
     const link = document.createElement('a');
     link.href = qrCodeDataUri;
-    // Note: Since AI output is base64 raster, SVG download for AI-styled codes 
-    // is currently served as the high-res raster version.
     link.download = `qrify-code.${format}`;
     document.body.appendChild(link);
     link.click();

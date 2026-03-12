@@ -1,44 +1,46 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Globe, Download, Trash2, Calendar, Search } from "lucide-react";
-import { getSavedQRCodes, deleteQRCode, SavedQRCode } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useFirestore, useUser, useCollection, useMemoFirebase } from "@/firebase";
+import { collection, doc, deleteDoc, query, orderBy } from "firebase/firestore";
 
 export default function Dashboard() {
-  const [qrcodes, setQrcodes] = useState<SavedQRCode[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const { toast } = useToast();
+  const db = useFirestore();
+  const { user } = useUser();
 
-  const loadData = async () => {
-    setIsLoading(true);
-    const data = await getSavedQRCodes();
-    setQrcodes(data);
-    setIsLoading(false);
-  };
+  const qrCodesQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return query(
+      collection(db, 'users', user.uid, 'qr_codes'),
+      orderBy('createdAt', 'desc')
+    );
+  }, [db, user]);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const { data: qrcodes, isLoading } = useCollection(qrCodesQuery);
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this QR code?")) return;
-    const success = await deleteQRCode(id);
-    if (success) {
+    if (!db || !user || !confirm("Are you sure you want to delete this QR code?")) return;
+    
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'qr_codes', id));
       toast({ title: "Deleted", description: "QR code removed successfully." });
-      setQrcodes(qrcodes.filter(q => q.id !== id));
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: "Could not delete code." });
     }
   };
 
-  const filtered = qrcodes.filter(q => 
+  const filtered = (qrcodes || []).filter(q => 
     q.title?.toLowerCase().includes(search.toLowerCase()) || 
-    q.url.toLowerCase().includes(search.toLowerCase())
+    q.originalUrl.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -78,7 +80,7 @@ export default function Dashboard() {
             {filtered.map((qr) => (
               <Card key={qr.id} className="overflow-hidden group hover:shadow-lg transition-all border-muted/60">
                 <div className="aspect-square relative bg-white flex items-center justify-center p-4 border-b">
-                  <img src={qr.qrCodeDataUri} alt={qr.title} className="max-w-full h-auto" />
+                  <img src={qr.qrCodeImageUrl} alt={qr.title} className="max-w-full h-auto" />
                 </div>
                 <CardHeader className="p-4 pb-2">
                   <CardTitle className="text-lg font-bold text-primary truncate">{qr.title}</CardTitle>
@@ -86,17 +88,17 @@ export default function Dashboard() {
                 <CardContent className="p-4 pt-0 space-y-3">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Globe className="h-3 w-3" />
-                    <span className="truncate">{qr.url}</span>
+                    <span className="truncate">{qr.originalUrl}</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Calendar className="h-3 w-3" />
-                    <span>{qr.createdAt instanceof Date ? qr.createdAt.toLocaleDateString() : (qr.createdAt as any).toDate().toLocaleDateString()}</span>
+                    <span>{qr.createdAt?.toDate?.() ? qr.createdAt.toDate().toLocaleDateString() : 'Just now'}</span>
                   </div>
                 </CardContent>
                 <CardFooter className="p-4 pt-0 flex gap-2">
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => {
                     const link = document.createElement('a');
-                    link.href = qr.qrCodeDataUri;
+                    link.href = qr.qrCodeImageUrl;
                     link.download = `${qr.title.replace(/\s+/g, '-').toLowerCase()}.png`;
                     link.click();
                   }}>

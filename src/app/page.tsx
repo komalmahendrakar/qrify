@@ -1,8 +1,21 @@
+'use client';
+
 import { Navbar } from "@/components/navbar";
 import { QRGenerator } from "@/components/qr-generator";
 import { Sparkles } from "lucide-react";
+import { useEffect } from "react";
+import { useAuth, initiateAnonymousSignIn, useUser } from "@/firebase";
 
 export default function Home() {
+  const auth = useAuth();
+  const { user } = useUser();
+
+  useEffect(() => {
+    if (auth && !user) {
+      initiateAnonymousSignIn(auth);
+    }
+  }, [auth, user]);
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
