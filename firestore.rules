@@ -3,44 +3,55 @@ rules_version = '2';
 
 /**
  * FIRESTORE SECURITY RULES
- * - Public: Generate QR (create) & Redirect (read via collectionGroup).
- * - Tracking: Public update of scan metrics on active links.
- * - Admin: Full Management (all operations).
+ * - Public: Read access for QR code redirection (via Collection Group) and scan tracking.
+ * - Users: Manage their own QR code history (create/read).
+ * - Admin: Full Management of all records and roles.
  */
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function isSignedIn() { return request.auth != null; }
-    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid)); }
+    function isAdmin() { 
+      return isSignedIn() && exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid)); 
+    }
 
+    // 1. User and Admin specific rules for the hierarchical structure
     match /users/{userId} {
-      allow get, create, update: if isSignedIn() && request.auth.uid == userId || isAdmin();
+      // Users can manage their own profile and records
+      allow get, create, update: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
       
       match /qr_codes/{qrCodeId} {
-        // Public can read to find redirect info
-        allow get, list: if true;
+        // Individual document access
+        allow get: if true;
+        allow list: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
 
-        // Any signed-in (including anonymous) user can create their own history
-        allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+        // Creation restricted to owner or admin
+        allow create: if (isSignedIn() && request.resource.data.userId == request.auth.uid) || isAdmin();
 
-        // Public can ONLY update scan counts for active QR codes
-        allow update: if (resource.data.status == 'active' 
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt']))
-          || isAdmin();
+        // Public can ONLY update scan counts for active QR codes. 
+        // Admins have full update rights.
+        allow update: if (
+          resource.data.status == 'active' 
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt'])
+        ) || isAdmin();
 
+        // Deletion restricted to admins
         allow delete: if isAdmin();
       }
     }
 
+    // 2. Admin role management
     match /roles_admin/{adminId} {
       allow get: if isSignedIn();
       allow list: if isAdmin();
     }
 
-    // CRITICAL: Required for the /r/[qrId] redirect logic (Collection Group Query)
-    // Allows looking up a QR code by its ID without knowing the parent userId path.
+    // 3. COLLECTION GROUP RULES
+    // CRITICAL: This allows the /r/[qrId] redirect engine to perform public lookups
+    // across all sub-collections without needing to know the parent userId.
     match /{path=**}/qr_codes/{qrCodeId} {
+      // 'read' allows both 'get' and 'list' (queries)
       allow read: if true;
     }
   }
