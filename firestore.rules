@@ -11,27 +11,33 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() { return request.auth != null; }
+    // Helper functions
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
     function isAdmin() { 
       return isSignedIn() && exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid)); 
     }
 
     // 1. GLOBAL COLLECTION GROUP RULES
-    // This governs the /r/[qrId] redirect engine lookups.
-    // We must allow 'list' (queries) and 'get' (direct fetch) globally.
+    // Crucial for /r/[qrId] redirect engine which uses collectionGroup queries.
+    // This match pattern is required for collection group security.
     match /{path=**}/qr_codes/{qrCodeId} {
+      // Allow public to find a QR code by ID and read its details for redirection.
       allow read: if true;
       
-      // Allow creation for anyone (anonymous or signed in)
+      // Allow creation for anyone (anonymous or signed in) so they can generate codes.
       allow create: if true;
 
-      // Allow public to update scan counts ONLY
+      // Allow public to update scan counts ONLY if the code is active.
+      // We explicitly check status and ensure ONLY analytics fields are modified.
       allow update: if (
         resource.data.status == 'active' 
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt'])
       ) || isAdmin();
 
-      // Only admins can delete
+      // Only admins can delete records globally.
       allow delete: if isAdmin();
     }
 
@@ -39,10 +45,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow get, create, update: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
       
-      // Note: The /qr_codes sub-collection rules are already covered by the global match above.
-      // However, we can add specific 'list' restrictions for the Dashboard view if needed.
+      // Users can list their own codes in the dashboard.
       match /qr_codes/{qrCodeId} {
-        // Users can list their own codes in the dashboard
         allow list: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
       }
     }

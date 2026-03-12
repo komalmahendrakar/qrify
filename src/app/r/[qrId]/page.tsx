@@ -51,15 +51,15 @@ export default function RedirectPage() {
     }
 
     const qr = data[0];
-    console.log(`[REDIRECT_LOG] Found QR record successfully. Status: ${qr.status}`);
+    console.log(`[REDIRECT_LOG] Found QR record successfully. Status: ${qr.status}, Destination: ${qr.originalUrl}`);
 
     if (qr.status === 'active') {
       setHasTracked(true);
 
       // Non-blocking analytics update
-      // We use the full path gathered from the collection group result
       if (db && qr.userId) {
         const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
+        console.log(`[REDIRECT_LOG] Updating scan metrics for record at: ${qrRef.path}`);
         updateDoc(qrRef, {
           totalScans: increment(1),
           lastScannedAt: serverTimestamp()
@@ -71,7 +71,10 @@ export default function RedirectPage() {
       // Perform the redirect
       if (qr.originalUrl) {
         console.log(`[REDIRECT_LOG] Success! Redirecting to: ${qr.originalUrl}`);
-        window.location.replace(qr.originalUrl);
+        // Small delay to ensure the user sees the "Redirecting" state briefly
+        setTimeout(() => {
+          window.location.replace(qr.originalUrl);
+        }, 300);
       } else {
         console.error("[REDIRECT_ERROR] Record found but originalUrl is missing");
         setErrorStatus("not_found");
@@ -116,14 +119,20 @@ export default function RedirectPage() {
               {errorStatus === "inactive" 
                 ? "This QR code has been temporarily deactivated by its owner." 
                 : errorStatus === "error"
-                ? "We encountered an issue retrieving the redirect information. Please check your connection."
+                ? "We encountered an issue retrieving the redirect information. Please check your connection or try again later."
                 : `The scanned code (ID: ${qrId}) is invalid or has been removed from our system.`}
             </p>
             <Button asChild className="w-full h-14 rounded-2xl text-lg font-semibold shadow-lg">
               <Link href="/"><ArrowLeft className="mr-2 h-5 w-5" /> Return to Home</Link>
             </Button>
           </div>
-        ) : null}
+        ) : (
+          // This state occurs after the redirect is initiated but before the page unloads
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-10 w-10 animate-spin text-primary opacity-50" />
+            <p className="text-muted-foreground animate-pulse">Navigating to destination...</p>
+          </div>
+        )}
       </main>
     </div>
   );
