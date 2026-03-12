@@ -4,13 +4,15 @@ import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Download, Save, RefreshCw, Wand2, Globe, QrCode, Share2, Check, Copy } from "lucide-react";
+import { Loader2, Download, Save, RefreshCw, Wand2, Globe, QrCode, Share2, Check, Copy, AlertCircle } from "lucide-react";
 import { generateStyledQrCode } from "@/ai/flows/generate-styled-qr-code";
 import { suggestQrCodeDescription } from "@/ai/flows/suggest-qr-code-description-flow";
 import { useToast } from "@/hooks/use-toast";
 import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from "@/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import QRCode from 'qrcode';
+
+const GENERATION_COOLDOWN_MS = 3000;
 
 export function QRGenerator() {
   const [url, setUrl] = useState("");
@@ -21,6 +23,7 @@ export function QRGenerator() {
   const [saveId, setSaveId] = useState<string | null>(null);
   const [savedUserId, setSavedUserId] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [lastGeneratedAt, setLastGeneratedAt] = useState(0);
   
   const { toast } = useToast();
   const db = useFirestore();
@@ -28,8 +31,8 @@ export function QRGenerator() {
 
   const validateUrl = (string: string) => {
     try {
-      new URL(string);
-      return true;
+      const parsed = new URL(string.trim());
+      return ['http:', 'https:'].includes(parsed.protocol);
     } catch (_) {
       return false;
     }
@@ -38,7 +41,9 @@ export function QRGenerator() {
   const handleGenerate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
-    if (!url) {
+    // 1. Basic empty check
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) {
       toast({
         variant: "destructive",
         title: "URL required",
@@ -47,23 +52,37 @@ export function QRGenerator() {
       return;
     }
 
-    if (!validateUrl(url)) {
+    // 2. Strict validation check
+    if (!validateUrl(trimmedUrl)) {
       toast({
         variant: "destructive",
         title: "Invalid URL",
-        description: "Please enter a valid URL (e.g., https://google.com).",
+        description: "Please enter a valid URL starting with http:// or https://",
+      });
+      return;
+    }
+
+    // 3. Rate limiting check
+    const now = Date.now();
+    if (now - lastGeneratedAt < GENERATION_COOLDOWN_MS) {
+      const remaining = Math.ceil((GENERATION_COOLDOWN_MS - (now - lastGeneratedAt)) / 1000);
+      toast({
+        variant: "destructive",
+        title: "Rate limit reached",
+        description: `Please wait ${remaining} second${remaining === 1 ? '' : 's'} before generating again.`,
       });
       return;
     }
 
     setIsGenerating(true);
-    setSaveId(null); // Reset save state for new generation
+    setSaveId(null);
     try {
       const result = await generateStyledQrCode({ 
-        url, 
-        stylePrompt: stylePrompt || "classic minimalist" 
+        url: trimmedUrl, 
+        stylePrompt: stylePrompt.trim() || "classic minimalist" 
       });
       setQrCodeDataUri(result.qrCodeDataUri);
+      setLastGeneratedAt(Date.now());
       toast({
         title: "QR Code Generated",
         description: "Your scannable QR code is ready.",
@@ -72,7 +91,7 @@ export function QRGenerator() {
       toast({
         variant: "destructive",
         title: "Generation failed",
-        description: "Something went wrong while creating your QR code.",
+        description: "Something went wrong while creating your QR code. Please check your URL.",
       });
     } finally {
       setIsGenerating(false);
@@ -81,20 +100,21 @@ export function QRGenerator() {
 
   const handleSave = async () => {
     if (!qrCodeDataUri || !url || !user || !db) {
-      if (!user) toast({ variant: "destructive", title: "Auth required", description: "You must be signed in to save." });
+      if (!user) toast({ variant: "destructive", title: "Authentication required", description: "You must be signed in (anonymously) to save your history." });
       return;
     }
     
     setIsSaving(true);
     try {
-      const { summary } = await suggestQrCodeDescription({ url });
+      const trimmedUrl = url.trim();
+      const { summary } = await suggestQrCodeDescription({ url: trimmedUrl });
       
       const qrCodeId = crypto.randomUUID();
       const qrCodeRef = doc(db, 'users', user.uid, 'qr_codes', qrCodeId);
       
       const data = {
         id: qrCodeId,
-        originalUrl: url,
+        originalUrl: trimmedUrl,
         qrCodeImageUrl: qrCodeDataUri,
         title: summary,
         createdAt: serverTimestamp(),
@@ -108,7 +128,7 @@ export function QRGenerator() {
           setSavedUserId(user.uid);
           toast({
             title: "Saved!",
-            description: `QR code for ${summary} has been saved to your dashboard.`,
+            description: `QR code saved as: ${summary}`,
           });
         })
         .catch(async (error) => {
@@ -135,9 +155,8 @@ export function QRGenerator() {
     if (!qrCodeDataUri) return;
 
     let downloadUrl = qrCodeDataUri;
-    let fileName = `qrify-code.${format}`;
+    let fileName = `qrify-${Date.now()}.${format}`;
 
-    // For SVG, if it's not a native SVG, we generate a high-quality scannable base SVG
     if (format === 'svg') {
       try {
         const svgString = await QRCode.toString(url, {
@@ -149,10 +168,10 @@ export function QRGenerator() {
         const blob = new Blob([svgString], { type: 'image/svg+xml' });
         downloadUrl = URL.createObjectURL(blob);
       } catch (e) {
-        console.error("SVG generation failed", e);
+        toast({ variant: "destructive", title: "Download failed", description: "Could not generate SVG format." });
+        return;
       }
     } else if (format === 'jpg') {
-      // Convert Data URI to JPG if needed (usually it's PNG from canvas/AI)
       const img = new Image();
       img.src = qrCodeDataUri;
       await new Promise(resolve => img.onload = resolve);
@@ -186,7 +205,7 @@ export function QRGenerator() {
     const shareUrl = `${window.location.origin}/share/${savedUserId}/${saveId}`;
     navigator.clipboard.writeText(shareUrl);
     setIsCopied(true);
-    toast({ title: "Link Copied", description: "Shareable URL copied to clipboard." });
+    toast({ title: "Link Copied", description: "Public shareable link is now in your clipboard." });
     setTimeout(() => setIsCopied(false), 2000);
   };
 
@@ -195,7 +214,7 @@ export function QRGenerator() {
       <Card className="shadow-lg border-primary/10">
         <CardHeader>
           <CardTitle className="font-headline text-primary">Configuration</CardTitle>
-          <CardDescription>Enter your link and customize the visual appearance.</CardDescription>
+          <CardDescription>Enter your destination and customize the aesthetic.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleGenerate} className="space-y-6">
@@ -224,18 +243,18 @@ export function QRGenerator() {
             </div>
             <Button 
               type="submit" 
-              className="w-full h-12 text-lg shadow-md transition-all hover:scale-[1.02]" 
-              disabled={isGenerating || !url}
+              className="w-full h-12 text-lg shadow-md transition-all hover:scale-[1.01]" 
+              disabled={isGenerating || !url.trim()}
             >
               {isGenerating ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Crafting QR Code...
+                  Generating...
                 </>
               ) : (
                 <>
                   <RefreshCw className="mr-2 h-5 w-5" />
-                  Generate QR Code
+                  Generate Styled QR
                 </>
               )}
             </Button>
@@ -275,7 +294,7 @@ export function QRGenerator() {
                   disabled={isSaving}
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Save to Dashboard
+                  Save History
                 </Button>
               ) : (
                 <Button 
@@ -293,7 +312,7 @@ export function QRGenerator() {
           <div className="h-full w-full max-w-sm flex flex-col items-center justify-center border-2 border-dashed rounded-3xl p-12 text-center bg-muted/20 border-muted-foreground/20">
             <QrCode className="h-16 w-16 text-muted-foreground/30 mb-4" />
             <p className="text-muted-foreground text-sm max-w-[200px]">
-              Your AI-generated QR code will appear here after generation.
+              Ready to create something beautiful. Enter a URL to start.
             </p>
           </div>
         )}

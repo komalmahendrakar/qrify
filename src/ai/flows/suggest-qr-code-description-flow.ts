@@ -11,7 +11,7 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const SuggestQrCodeDescriptionInputSchema = z.object({
-  url: z.string().url().describe('The URL embedded in the QR code.'),
+  url: z.string().trim().url().max(2000).describe('The URL embedded in the QR code.'),
 });
 export type SuggestQrCodeDescriptionInput = z.infer<typeof SuggestQrCodeDescriptionInputSchema>;
 
@@ -19,7 +19,7 @@ const SuggestQrCodeDescriptionOutputSchema = z.object({
   summary: z
     .string()
     .max(100)
-    .describe('A concise, descriptive title or summary for the URL, suitable for organizing QR codes.'),
+    .describe('A concise, descriptive title or summary for the URL.'),
 });
 export type SuggestQrCodeDescriptionOutput = z.infer<typeof SuggestQrCodeDescriptionOutputSchema>;
 
@@ -33,10 +33,9 @@ const prompt = ai.definePrompt({
   name: 'suggestQrCodeDescriptionPrompt',
   input: {schema: SuggestQrCodeDescriptionInputSchema},
   output: {schema: SuggestQrCodeDescriptionOutputSchema},
-  prompt: `You are an AI assistant tasked with generating concise, descriptive titles or summaries for URLs.
-The title/summary should be helpful for a user to organize and retrieve saved QR codes.
-Focus on the primary purpose or content implied by the URL.
-Keep the summary under 100 characters.
+  prompt: `Generate a concise, user-friendly title (max 6 words) for this URL. 
+Focus on identifying the brand or the content of the destination page.
+Keep it descriptive enough for a user to recognize it in a list.
 
 URL: {{{url}}}`,
 });
