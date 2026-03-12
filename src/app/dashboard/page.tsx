@@ -1,55 +1,70 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Navbar } from "@/components/navbar";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Globe, Download, Trash2, Calendar, Search, Share2, Copy, Check } from "lucide-react";
+import { Globe, Download, Trash2, Calendar, Search, Share2, Copy, Check, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useFirestore, useUser, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc, deleteDoc, query, orderBy } from "firebase/firestore";
-import { getBaseUrl } from "@/lib/urls";
+import { deleteQRCodeAction } from "@/app/actions";
+
+interface QRCodeItem {
+  id: string;
+  originalUrl: string;
+  qrCodeImageUrl: string;
+  title: string;
+  createdAt: string;
+  status: string;
+  totalScans: number;
+}
 
 export default function Dashboard() {
   const [search, setSearch] = useState("");
-  const { toast } = useToast();
-  const db = useFirestore();
-  const { user } = useUser();
+  const [qrcodes, setQrcodes] = useState<QRCodeItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  const qrCodesQuery = useMemoFirebase(() => {
-    if (!db || !user) return null;
-    return query(
-      collection(db, 'users', user.uid, 'qr_codes'),
-      orderBy('createdAt', 'desc')
-    );
-  }, [db, user]);
+  const fetchQRCodes = useCallback(async () => {
+    try {
+      const res = await fetch('/api/qrcodes');
+      const data = await res.json();
+      setQrcodes(data);
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Could not load QR codes." });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
 
-  const { data: qrcodes, isLoading } = useCollection(qrCodesQuery);
+  useEffect(() => {
+    fetchQRCodes();
+  }, [fetchQRCodes]);
 
   const handleDelete = async (id: string) => {
-    if (!db || !user || !confirm("Are you sure you want to delete this QR code?")) return;
+    if (!confirm("Are you sure you want to delete this QR code?")) return;
     
-    try {
-      await deleteDoc(doc(db, 'users', user.uid, 'qr_codes', id));
+    const result = await deleteQRCodeAction(id);
+    if (result.success) {
+      setQrcodes(prev => prev.filter(qr => qr.id !== id));
       toast({ title: "Deleted", description: "QR code removed successfully." });
-    } catch (e) {
+    } else {
       toast({ variant: "destructive", title: "Error", description: "Could not delete code." });
     }
   };
 
-  const handleShare = (qr: any) => {
-    const baseUrl = getBaseUrl();
-    const shareUrl = `${baseUrl}/share/${user?.uid}/${qr.id}`;
+  const handleShare = (qr: QRCodeItem) => {
+    const baseUrl = window.location.origin;
+    const shareUrl = `${baseUrl}/share/${qr.id}`;
     navigator.clipboard.writeText(shareUrl);
     setCopiedId(qr.id);
     toast({ title: "Link Copied", description: "Public share link copied to clipboard." });
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const filtered = (qrcodes || []).filter(q => 
+  const filtered = qrcodes.filter(q => 
     q.title?.toLowerCase().includes(search.toLowerCase()) || 
     q.originalUrl.toLowerCase().includes(search.toLowerCase())
   );
@@ -103,7 +118,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Calendar className="h-3 w-3" />
-                    <span>{qr.createdAt?.toDate?.() ? qr.createdAt.toDate().toLocaleDateString() : 'Just now'}</span>
+                    <span>{new Date(qr.createdAt).toLocaleDateString()}</span>
                   </div>
                 </CardContent>
                 <CardFooter className="p-4 pt-0 flex gap-2">

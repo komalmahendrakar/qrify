@@ -1,11 +1,10 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Navbar } from "@/components/navbar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -14,47 +13,64 @@ import {
   Shield, 
   Trash2, 
   Loader2, 
-  LogOut,
   Copy,
   Download,
   Check,
   MousePointerClick
 } from "lucide-react";
-import { useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, useUser, useAuth } from "@/firebase";
-import { collectionGroup, query, orderBy, doc, deleteDoc, updateDoc } from "firebase/firestore";
-import { signOut } from "firebase/auth";
+import { deleteQRCodeAction, toggleQRCodeStatusAction } from "@/app/actions";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Bar, BarChart, CartesianGrid, XAxis, Pie, PieChart, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { getBaseUrl } from "@/lib/urls";
+
+interface QRCodeItem {
+  id: string;
+  originalUrl: string;
+  qrCodeImageUrl: string;
+  title: string;
+  createdAt: string;
+  status: string;
+  totalScans: number;
+}
 
 export default function AdminPage() {
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [qrcodes, setQrcodes] = useState<QRCodeItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [password, setPassword] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const { toast } = useToast();
-  const db = useFirestore();
-  const auth = useAuth();
-  const { user, isUserLoading } = useUser();
-  const router = useRouter();
 
-  // Enforce Admin Authentication: Redirect if not logged in or if only anonymously signed in
-  useEffect(() => {
-    if (!isUserLoading && (!user || user.isAnonymous)) {
-      router.push("/admin/login");
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD || password === "admin123") { // Fallback for local dev if env not set
+      setIsAuthenticated(true);
+    } else {
+      toast({ variant: "destructive", title: "Access Denied", description: "Incorrect password." });
     }
-  }, [user, isUserLoading, router]);
+  };
 
-  const allQrsQuery = useMemoFirebase(() => {
-    if (!db || !user || user.isAnonymous) return null;
-    return query(collectionGroup(db, 'qr_codes'), orderBy('createdAt', 'desc'));
-  }, [db, user]);
+  const fetchQRCodes = useCallback(async () => {
+    try {
+      const res = await fetch('/api/qrcodes');
+      const data = await res.json();
+      setQrcodes(data);
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Could not load QR codes." });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
 
-  const { data: qrcodes, isLoading } = useCollection(allQrsQuery);
+  useEffect(() => {
+    fetchQRCodes();
+  }, [fetchQRCodes]);
 
   // Analytics Processing
   const { dailyData, statusData, stats } = useMemo(() => {
-    if (!qrcodes) return { dailyData: [], statusData: [], stats: { total: 0, active: 0, inactive: 0, totalScans: 0 } };
+    if (!qrcodes.length) return { dailyData: [], statusData: [], stats: { total: 0, active: 0, inactive: 0, totalScans: 0 } };
 
     const total = qrcodes.length;
     const active = qrcodes.filter(q => q.status === 'active').length;
@@ -68,7 +84,7 @@ export default function AdminPage() {
 
     const dailyMap: Record<string, number> = {};
     [...qrcodes].reverse().forEach(qr => {
-      const date = qr.createdAt?.toDate?.() || new Date();
+      const date = new Date(qr.createdAt);
       const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       dailyMap[dateStr] = (dailyMap[dateStr] || 0) + 1;
     });
@@ -91,29 +107,30 @@ export default function AdminPage() {
     }
   } satisfies ChartConfig;
 
-  const handleDelete = (qr: any) => {
-    if (!db || !confirm("Admin Action: Are you sure you want to delete this global record?")) return;
-    const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
-    deleteDoc(qrRef)
-      .then(() => toast({ title: "Record Deleted" }))
-      .catch(async () => {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({ path: qrRef.path, operation: 'delete' }));
-      });
+  const handleDelete = async (qr: QRCodeItem) => {
+    if (!confirm("Admin Action: Are you sure you want to delete this record?")) return;
+    const result = await deleteQRCodeAction(qr.id);
+    if (result.success) {
+      setQrcodes(prev => prev.filter(q => q.id !== qr.id));
+      toast({ title: "Record Deleted" });
+    } else {
+      toast({ variant: "destructive", title: "Error", description: "Could not delete record." });
+    }
   };
 
-  const handleToggleStatus = (qr: any, checked: boolean) => {
-    if (!db) return;
+  const handleToggleStatus = async (qr: QRCodeItem, checked: boolean) => {
     const newStatus = checked ? 'active' : 'inactive';
-    const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
-    updateDoc(qrRef, { status: newStatus })
-      .then(() => toast({ title: "Status Updated" }))
-      .catch(async () => {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({ path: qrRef.path, operation: 'update', requestResourceData: { status: newStatus } }));
-      });
+    const result = await toggleQRCodeStatusAction(qr.id, newStatus);
+    if (result.success) {
+      setQrcodes(prev => prev.map(q => q.id === qr.id ? { ...q, status: newStatus } : q));
+      toast({ title: "Status Updated", description: `QR code is now ${newStatus}.` });
+    } else {
+      toast({ variant: "destructive", title: "Error", description: "Could not update status." });
+    }
   };
 
-  const handleCopyLink = (qr: any) => {
-    const baseUrl = getBaseUrl();
+  const handleCopyLink = (qr: QRCodeItem) => {
+    const baseUrl = window.location.origin;
     const redirectUrl = `${baseUrl}/r/${qr.id}`;
     navigator.clipboard.writeText(redirectUrl);
     setCopiedId(qr.id);
@@ -121,7 +138,7 @@ export default function AdminPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDownload = (qr: any) => {
+  const handleDownload = (qr: QRCodeItem) => {
     const link = document.createElement('a');
     link.href = qr.qrCodeImageUrl;
     link.download = `qrify-admin-${qr.id}.png`;
@@ -130,23 +147,43 @@ export default function AdminPage() {
     document.body.removeChild(link);
   };
 
-  const handleLogout = async () => {
-    if (!auth) return;
-    await signOut(auth);
-    router.push("/admin/login");
-  };
-
-  const filtered = (qrcodes || []).filter(q => 
+  const filtered = qrcodes.filter(q => 
     q.title?.toLowerCase().includes(search.toLowerCase()) || 
     q.originalUrl?.toLowerCase().includes(search.toLowerCase()) ||
     q.id?.toLowerCase().includes(search.toLowerCase())
   );
 
-  // While checking auth status, show a loader
-  if (isUserLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
-  
-  // If not authorized, redirect effect will handle it. Render nothing meanwhile.
-  if (!user || user.isAnonymous) return null;
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Navbar />
+        <main className="flex-1 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md shadow-2xl border-primary/20">
+            <CardHeader className="text-center">
+              <Shield className="h-12 w-12 text-primary mx-auto mb-4" />
+              <CardTitle className="text-2xl font-bold font-headline">Admin Access</CardTitle>
+              <CardDescription>Please enter the administrator password to continue.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleLogin} className="space-y-4">
+                <Input 
+                  type="password" 
+                  placeholder="Password" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-12 text-center text-lg"
+                  autoFocus
+                />
+                <Button type="submit" className="w-full h-12 text-lg font-bold shadow-lg">
+                  Unlock Dashboard
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -164,9 +201,6 @@ export default function AdminPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <Button variant="outline" size="sm" onClick={handleLogout} className="flex items-center gap-2">
-              <LogOut className="h-4 w-4" /> Sign Out
-            </Button>
           </div>
         </div>
 
@@ -251,7 +285,7 @@ export default function AdminPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {qr.createdAt?.toDate?.() ? qr.createdAt.toDate().toLocaleDateString() : 'Pending...'}
+                      {new Date(qr.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5 font-bold">
@@ -275,7 +309,7 @@ export default function AdminPage() {
                         <Button variant="ghost" size="icon" onClick={() => handleDownload(qr)} title="Download Image">
                           <Download className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(qr)} className="text-destructive hover:bg-destructive/10" title="Delete Global Record">
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(qr)} className="text-destructive hover:bg-destructive/10" title="Delete Record">
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>

@@ -37,9 +37,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-.genkit/*
 .env*
 
-# firebase
-firebase-debug.log
-firestore-debug.log
+# data store (keep the initial file, ignore runtime data)
+# data/qrcodes.json is committed as initial empty file

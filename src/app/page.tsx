@@ -3,20 +3,9 @@
 import { Navbar } from "@/components/navbar";
 import { QRGenerator } from "@/components/qr-generator";
 import { Sparkles, CheckCircle2, Zap, Download, BarChart3, ArrowDown } from "lucide-react";
-import { useEffect } from "react";
-import { useAuth, initiateAnonymousSignIn, useUser } from "@/firebase";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
-  const auth = useAuth();
-  const { user } = useUser();
-
-  useEffect(() => {
-    if (auth && !user) {
-      initiateAnonymousSignIn(auth);
-    }
-  }, [auth, user]);
-
   const scrollToGenerator = () => {
     document.getElementById('generator-section')?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -29,7 +18,7 @@ export default function Home() {
         <section className="text-center space-y-8 mb-20 animate-in fade-in slide-in-from-top-4 duration-700">
           <div className="inline-flex items-center rounded-full border border-secondary/20 bg-secondary/10 px-4 py-1.5 text-sm font-semibold text-secondary mb-4">
             <Sparkles className="mr-2 h-4 w-4" />
-            Professional AI-Powered QR Tool
+            Professional Dynamic QR Tool
           </div>
           
           <div className="space-y-4">
@@ -37,8 +26,8 @@ export default function Home() {
               Free QR Code Generator
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Create beautiful, scannable, and branded QR codes in seconds. 
-              Our AI ensures every code is a masterpiece without sacrificing functionality.
+              Create scannable, trackable QR codes in seconds. 
+              Generate, download, and manage dynamic QR codes with real-time analytics.
             </p>
           </div>
 
@@ -53,7 +42,7 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-2 text-sm font-medium text-foreground bg-card px-4 py-2 rounded-full border shadow-sm">
               <BarChart3 className="h-4 w-4 text-secondary" />
-              <span>Track QR codes</span>
+              <span>Track QR scans</span>
             </div>
           </div>
 
@@ -79,9 +68,9 @@ export default function Home() {
             <div className="mx-auto w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
               <Sparkles className="h-6 w-6 text-primary" />
             </div>
-            <h3 className="text-xl font-bold text-primary font-headline">Custom AI Styles</h3>
+            <h3 className="text-xl font-bold text-primary font-headline">Dynamic QR Codes</h3>
             <p className="text-muted-foreground leading-relaxed">
-              Use natural language to describe the theme and style. Our AI blends your brand identity with scannable patterns.
+              Every QR code is dynamic — the destination URL can be managed and the link can be enabled or disabled at any time.
             </p>
           </div>
           <div className="space-y-4 p-8 bg-card rounded-[2rem] border border-primary/5 shadow-sm transition-all hover:shadow-md">
@@ -99,7 +88,7 @@ export default function Home() {
             </div>
             <h3 className="text-xl font-bold text-primary font-headline">Real-time Tracking</h3>
             <p className="text-muted-foreground leading-relaxed">
-              Monitor scan counts and last activity for every dynamic QR code you generate from your private dashboard.
+              Monitor scan counts and activity for every dynamic QR code from your admin dashboard.
             </p>
           </div>
         </section>

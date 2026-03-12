@@ -5,33 +5,23 @@ import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Download, Save, RefreshCw, Wand2, Globe, QrCode, Share2, Check, Copy } from "lucide-react";
-import { generateStyledQrCode } from "@/ai/flows/generate-styled-qr-code";
-import { suggestQrCodeDescription } from "@/ai/flows/suggest-qr-code-description-flow";
+import { Loader2, Download, RefreshCw, Globe, QrCode, Check, Copy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useFirestore, useUser } from "@/firebase";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { getBaseUrl } from "@/lib/urls";
-import QRCode from 'qrcode';
+import { generateAndSaveQRCode } from "@/app/actions";
+import QRCodeLib from 'qrcode';
 
 const GENERATION_COOLDOWN_MS = 2000;
 
 export function QRGenerator() {
   const [url, setUrl] = useState("");
-  const [stylePrompt, setStylePrompt] = useState("classic black and white minimalist");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [qrCodeDataUri, setQrCodeDataUri] = useState<string | null>(null);
   const [qrCodeId, setQrCodeId] = useState<string | null>(null);
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
-  const [saveId, setSaveId] = useState<string | null>(null);
-  const [savedUserId, setSavedUserId] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [lastGeneratedAt, setLastGeneratedAt] = useState(0);
   
   const { toast } = useToast();
-  const db = useFirestore();
-  const { user } = useUser();
 
   const validateUrl = (string: string) => {
     try {
@@ -58,73 +48,38 @@ export function QRGenerator() {
     }
 
     setIsGenerating(true);
-    setSaveId(null);
-    
-    // Create a stable ID for the redirect lookup
-    const newId = crypto.randomUUID().split('-')[0] + Date.now().toString(36);
-    const baseUrl = getBaseUrl();
-    const newRedirectUrl = `${baseUrl}/r/${newId}`;
     
     try {
-      console.log(`[GEN_LOG] Generating QR for redirect URL: ${newRedirectUrl}`);
-      const result = await generateStyledQrCode({ 
-        url: newRedirectUrl, 
-        stylePrompt: stylePrompt.trim() || "classic minimalist" 
-      });
+      // Generate a title from the URL domain
+      let title = "My QR Code";
+      try {
+        const domain = new URL(trimmedUrl).hostname.replace('www.', '');
+        title = `Link to ${domain}`;
+      } catch {}
+
+      const baseUrl = window.location.origin;
       
-      setQrCodeId(newId);
-      setRedirectUrl(newRedirectUrl);
-      setQrCodeDataUri(result.qrCodeDataUri);
+      const result = await generateAndSaveQRCode({
+        originalUrl: trimmedUrl,
+        title,
+        baseUrl,
+      });
+
+      if (!result.success || !result.qrCode) {
+        toast({ variant: "destructive", title: "Generation failed", description: result.error || "Something went wrong." });
+        return;
+      }
+
+      setQrCodeId(result.qrCode.id);
+      setRedirectUrl(`${baseUrl}/r/${result.qrCode.id}`);
+      setQrCodeDataUri(result.qrCode.qrCodeImageUrl);
       setLastGeneratedAt(Date.now());
-      toast({ title: "QR Code Ready", description: "This code is now scannable. Click Save to enable tracking." });
+      toast({ title: "QR Code Created!", description: `Dynamic QR code generated and saved. Scannable now.` });
     } catch (error) {
       console.error("[GEN_ERROR]", error);
       toast({ variant: "destructive", title: "Generation failed", description: "Something went wrong while creating your QR code." });
     } finally {
       setIsGenerating(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!qrCodeDataUri || !url || !user || !db || !qrCodeId) {
-      if (!user) toast({ variant: "destructive", title: "Auth Required", description: "Please sign in to save codes." });
-      return;
-    }
-    
-    setIsSaving(true);
-    try {
-      const trimmedUrl = url.trim();
-      const { summary } = await suggestQrCodeDescription({ url: trimmedUrl });
-      
-      const qrCodeRef = doc(db, 'users', user.uid, 'qr_codes', qrCodeId);
-      
-      const data = {
-        id: qrCodeId, // CRITICAL: This must match the URL path parameter
-        originalUrl: trimmedUrl,
-        qrCodeImageUrl: qrCodeDataUri,
-        title: summary || "My QR Code",
-        createdAt: serverTimestamp(),
-        status: 'active',
-        userId: user.uid,
-        totalScans: 0,
-      };
-
-      console.log(`[SAVE_LOG] Saving QR record to Firestore with ID: ${qrCodeId}`);
-      await setDoc(qrCodeRef, data);
-      
-      setSaveId(qrCodeId);
-      setSavedUserId(user.uid);
-      toast({ title: "Saved!", description: `Tracking enabled for: ${summary}` });
-
-    } catch (error: any) {
-      console.error("[SAVE_ERROR]", error);
-      toast({ 
-        variant: "destructive", 
-        title: "Save failed", 
-        description: error?.message || "Could not save. Check your database permissions." 
-      });
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -136,7 +91,7 @@ export function QRGenerator() {
 
     if (format === 'svg') {
       try {
-        const svgString = await QRCode.toString(redirectUrl, {
+        const svgString = await QRCodeLib.toString(redirectUrl, {
           type: 'svg',
           width: 1024,
           margin: 2,
@@ -177,13 +132,11 @@ export function QRGenerator() {
     }
   };
 
-  const copyShareLink = () => {
-    if (!saveId || !savedUserId) return;
-    const baseUrl = getBaseUrl();
-    const shareUrl = `${baseUrl}/share/${savedUserId}/${saveId}`;
-    navigator.clipboard.writeText(shareUrl);
+  const copyRedirectLink = () => {
+    if (!redirectUrl) return;
+    navigator.clipboard.writeText(redirectUrl);
     setIsCopied(true);
-    toast({ title: "Link Copied", description: "Public shareable link copied." });
+    toast({ title: "Link Copied", description: "Dynamic redirect link copied to clipboard." });
     setTimeout(() => setIsCopied(false), 2000);
   };
 
@@ -192,7 +145,7 @@ export function QRGenerator() {
       <Card className="shadow-lg border-primary/10">
         <CardHeader>
           <CardTitle className="font-headline text-primary">Configuration</CardTitle>
-          <CardDescription>Enter a destination and style for your dynamic QR.</CardDescription>
+          <CardDescription>Enter a destination URL to generate a dynamic QR code.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleGenerate} className="space-y-6">
@@ -206,17 +159,6 @@ export function QRGenerator() {
                 onChange={(e) => setUrl(e.target.value)}
                 className="bg-background border-muted"
                 required
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium flex items-center gap-2">
-                <Wand2 className="h-4 w-4 text-secondary" /> Visual Style
-              </label>
-              <Input
-                placeholder="e.g. futuristic neon, blue watercolor, minimalist"
-                value={stylePrompt}
-                onChange={(e) => setStylePrompt(e.target.value)}
-                className="bg-background border-muted"
               />
             </div>
             <Button 
@@ -265,25 +207,14 @@ export function QRGenerator() {
                 </Button>
               </div>
               
-              {!saveId ? (
-                <Button 
-                  onClick={handleSave} 
-                  className="w-full bg-secondary hover:bg-secondary/90 text-white font-semibold" 
-                  disabled={isSaving}
-                >
-                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Save to Enable Tracking
-                </Button>
-              ) : (
-                <Button 
-                  onClick={copyShareLink} 
-                  variant="secondary"
-                  className="w-full text-white font-semibold flex items-center justify-center"
-                >
-                  {isCopied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
-                  {isCopied ? "Link Copied!" : "Copy Public Share Link"}
-                </Button>
-              )}
+              <Button 
+                onClick={copyRedirectLink} 
+                variant="secondary"
+                className="w-full text-white font-semibold flex items-center justify-center"
+              >
+                {isCopied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+                {isCopied ? "Link Copied!" : "Copy Dynamic QR Link"}
+              </Button>
             </CardFooter>
           </Card>
         ) : (
