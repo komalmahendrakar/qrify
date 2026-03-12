@@ -9,7 +9,22 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Search, Shield, Trash2, ExternalLink, QrCode as QrIcon, Loader2, AlertCircle, TrendingUp, BarChart3, PieChart as PieChartIcon, LogOut } from "lucide-react";
+import { 
+  Search, 
+  Shield, 
+  Trash2, 
+  ExternalLink, 
+  QrCode as QrIcon, 
+  Loader2, 
+  AlertCircle, 
+  TrendingUp, 
+  BarChart3, 
+  PieChart as PieChartIcon, 
+  LogOut,
+  Copy,
+  Download,
+  Check
+} from "lucide-react";
 import { useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, useUser, useAuth } from "@/firebase";
 import { collectionGroup, query, orderBy, doc, deleteDoc, updateDoc } from "firebase/firestore";
 import { signOut } from "firebase/auth";
@@ -21,6 +36,7 @@ import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "
 
 export default function AdminPage() {
   const [search, setSearch] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const { toast } = useToast();
   const db = useFirestore();
   const auth = useAuth();
@@ -88,7 +104,7 @@ export default function AdminPage() {
   } satisfies ChartConfig;
 
   const handleDelete = (qr: any) => {
-    if (!db || !confirm("Admin Action: Are you sure you want to delete this global record?")) return;
+    if (!db || !confirm("Admin Action: Are you sure you want to delete this global record? This action is permanent.")) return;
     const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
     deleteDoc(qrRef)
       .then(() => toast({ title: "Record Deleted" }))
@@ -106,6 +122,23 @@ export default function AdminPage() {
       .catch(async () => {
         errorEmitter.emit('permission-error', new FirestorePermissionError({ path: qrRef.path, operation: 'update', requestResourceData: { status: newStatus } }));
       });
+  };
+
+  const handleCopyLink = (qr: any) => {
+    const redirectUrl = `${window.location.origin}/r/${qr.id}`;
+    navigator.clipboard.writeText(redirectUrl);
+    setCopiedId(qr.id);
+    toast({ title: "Link Copied", description: "Dynamic redirect link copied to clipboard." });
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleDownload = (qr: any) => {
+    const link = document.createElement('a');
+    link.href = qr.qrCodeImageUrl;
+    link.download = `qrify-admin-${qr.id}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleLogout = async () => {
@@ -281,18 +314,18 @@ export default function AdminPage() {
         <Card className="border-primary/10 shadow-lg overflow-hidden">
           <CardHeader className="border-b bg-muted/30 flex flex-row items-center gap-2">
             <BarChart3 className="h-5 w-5 text-primary" />
-            <CardTitle>Global History</CardTitle>
+            <CardTitle>Global Management</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[80px]">Preview</TableHead>
+                  <TableHead className="w-[100px]">Preview</TableHead>
                   <TableHead>Document ID</TableHead>
-                  <TableHead>Title & URL</TableHead>
+                  <TableHead>Title & Destination</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Status Control</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="text-right">Quick Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -315,8 +348,12 @@ export default function AdminPage() {
                   filtered.map((qr) => (
                     <TableRow key={qr.id} className="group transition-colors hover:bg-muted/40">
                       <TableCell>
-                        <div className="w-12 h-12 bg-white border rounded p-1 shadow-sm">
-                          <img src={qr.qrCodeImageUrl} alt="" className="w-full h-full object-contain" />
+                        <div className="w-14 h-14 bg-white border rounded p-1 shadow-sm flex items-center justify-center">
+                          <img 
+                            src={qr.qrCodeImageUrl} 
+                            alt="" 
+                            className="max-w-full max-h-full object-contain" 
+                          />
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
@@ -350,14 +387,33 @@ export default function AdminPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity" 
-                          onClick={() => handleDelete(qr)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            title="Copy Redirect Link"
+                            onClick={() => handleCopyLink(qr)}
+                          >
+                            {copiedId === qr.id ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            title="Download Image"
+                            onClick={() => handleDownload(qr)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-destructive hover:bg-destructive/10" 
+                            onClick={() => handleDelete(qr)}
+                            title="Delete Record"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
