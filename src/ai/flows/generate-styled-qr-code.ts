@@ -61,9 +61,11 @@ const generateStyledQrCodeFlow = ai.defineFlow(
   },
   async (input) => {
     const {url, stylePrompt} = input;
+    
+    // Production Logging
+    console.info(`[QR_GEN] Starting generation for URL: ${url} with style: ${stylePrompt}`);
 
     // 1. Generate a high-quality standard QR code using the qrcode library.
-    // Error correction level 'H' is used to allow for artistic styling while maintaining scannability.
     const baseQrDataUri = await QRCode.toDataURL(url, {
       width: 1024,
       margin: 2,
@@ -78,11 +80,13 @@ const generateStyledQrCodeFlow = ai.defineFlow(
     const lowerStyle = stylePrompt.toLowerCase();
     const simpleStyles = ['classic', 'minimalist', 'standard', 'basic', 'default'];
     if (simpleStyles.some(s => lowerStyle.includes(s)) && lowerStyle.length < 20) {
+      console.info(`[QR_GEN] Bypassing AI for simple style: ${stylePrompt}`);
       return {qrCodeDataUri: baseQrDataUri};
     }
 
     // 3. AI-Enhanced styling.
     try {
+      const startTime = Date.now();
       const response = await ai.generate({
         model: googleAI.model('gemini-2.5-flash-image'),
         prompt: [
@@ -109,14 +113,17 @@ const generateStyledQrCodeFlow = ai.defineFlow(
         },
       });
 
+      console.info(`[QR_GEN] AI Styling completed in ${Date.now() - startTime}ms`);
+
       if (response.media && response.media.length > 0 && response.media[0].url) {
         return {qrCodeDataUri: response.media[0].url};
       }
     } catch (e) {
-      console.error("AI Generation Error:", e);
+      console.error("[QR_GEN] AI Generation Error:", e);
     }
 
-    // Fallback to the scannable base QR if AI styling fails or is inappropriate
+    // Fallback to the scannable base QR if AI styling fails
+    console.warn(`[QR_GEN] Falling back to base QR code for ${url}`);
     return {qrCodeDataUri: baseQrDataUri};
   }
 );

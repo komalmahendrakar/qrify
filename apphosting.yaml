@@ -2,6 +2,12 @@
 # https://firebase.google.com/docs/app-hosting/configure
 
 runConfig:
-  # Increase this value if you'd like to automatically spin up
-  # more instances in response to increased traffic.
-  maxInstances: 1
+  # Increase instances for production availability
+  minInstances: 0
+  maxInstances: 10
+  # Ensure enough memory for Genkit/AI processing
+  memory: 1Gi
+
+env:
+  - variable: NODE_ENV
+    value: production
