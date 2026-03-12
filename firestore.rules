@@ -2,9 +2,7 @@ rules_version = '2';
 
 /**
  * FIRESTORE SECURITY RULES
- * - Public: Read access for QR code redirection (via Collection Group) and scan tracking.
- * - Users: Manage their own QR code history.
- * - Admin: Full Management of all records and roles.
+ * Optimized for Vercel Deployment & Public Redirection.
  */
 
 service cloud.firestore {
@@ -20,23 +18,22 @@ service cloud.firestore {
     }
 
     // 1. GLOBAL COLLECTION GROUP RULES
-    // MUST be top-level for collectionGroup queries to work correctly.
-    // This allows the /r/[qrId] engine to look up QR codes by ID for anyone.
+    // Allows the redirect engine (/r/[qrId]) to find records across all users.
+    // MUST be top-level and use recursive wildcard {path=**}.
     match /{path=**}/qr_codes/{qrCodeId} {
-      // Allow public READ (get/list) so the redirect engine can find records.
+      // Public READ access for redirection lookup.
       allow read: if true;
       
-      // Allow public CREATE so users can generate codes anonymously.
+      // Public CREATE for anonymous generation.
       allow create: if true;
 
-      // Allow public UPDATE only for tracking scans. 
-      // We check that only analytics fields are being modified.
+      // Tracking updates (scan counts) allowed for anyone.
       allow update: if (
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt'])
-      ) || isAdmin();
+      ) || (isSignedIn() && request.auth.uid == resource.data.userId) || isAdmin();
 
-      // Only admins can delete records globally.
-      allow delete: if isAdmin();
+      // Deletion restricted to owners or admins.
+      allow delete: if (isSignedIn() && request.auth.uid == resource.data.userId) || isAdmin();
     }
 
     // 2. USER PROFILE RULES
@@ -44,8 +41,9 @@ service cloud.firestore {
       allow get, create, update: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
       
       match /qr_codes/{qrCodeId} {
-        // Users can list their own codes.
-        allow list: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
+        // Redundant read here is okay as collectionGroup rule covers it, 
+        // but this allows direct path access if needed.
+        allow read: if true;
       }
     }
 

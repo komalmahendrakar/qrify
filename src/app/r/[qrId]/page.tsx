@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collectionGroup, query, where, limit, doc, updateDoc, increment, serverTimestamp } from "firebase/firestore";
 import { Loader2, AlertCircle, ArrowLeft, ShieldAlert } from "lucide-react";
@@ -18,13 +18,12 @@ export default function RedirectPage() {
   const qrId = params?.qrId as string;
   const db = useFirestore();
   const [errorStatus, setErrorStatus] = useState<"not_found" | "inactive" | "error" | null>(null);
-  const [hasTracked, setHasTracked] = useState(false);
+  const [hasRedirected, setHasRedirected] = useState(false);
 
   // Search for the QR ID globally using collectionGroup.
-  // This requires the qr_codes collection group index on the 'id' field.
   const qrQuery = useMemoFirebase(() => {
     if (!db || !qrId) return null;
-    console.log(`[REDIRECT_LOG] Initiating lookup for ID: ${qrId}`);
+    console.log(`[REDIRECT_LOG] Lookup initiated for ID: ${qrId}`);
     return query(
       collectionGroup(db, 'qr_codes'),
       where('id', '==', qrId),
@@ -41,43 +40,41 @@ export default function RedirectPage() {
       return;
     }
 
-    if (isLoading || !data || hasTracked) return;
+    if (isLoading || !data || hasRedirected) return;
 
     if (data.length === 0) {
-      console.warn(`[REDIRECT_WARN] Record not found for ID: ${qrId}`);
+      console.warn(`[REDIRECT_WARN] Record not found in Firestore for ID: ${qrId}`);
       setErrorStatus("not_found");
       return;
     }
 
     const qr = data[0];
-    console.log(`[REDIRECT_LOG] Record found. Status: ${qr.status}, Destination: ${qr.originalUrl}`);
+    console.log(`[REDIRECT_LOG] Found record. Status: ${qr.status}, Destination: ${qr.originalUrl}`);
 
     if (qr.status === 'active') {
-      setHasTracked(true);
+      setHasRedirected(true);
 
-      // Background tracking update (non-blocking)
+      // Background metrics update
       if (db && qr.userId) {
         const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
         updateDoc(qrRef, {
           totalScans: increment(1),
           lastScannedAt: serverTimestamp()
         }).catch((err) => {
-          console.warn("[TRACKING_ERROR] Metrics update failed, proceeding with redirect", err);
+          console.warn("[TRACKING_ERROR] Metrics update failed, continuing redirect", err);
         });
       }
 
       // Execute redirect
       if (qr.originalUrl) {
-        console.log(`[REDIRECT_LOG] Success. Redirecting to: ${qr.originalUrl}`);
         window.location.replace(qr.originalUrl);
       } else {
         setErrorStatus("not_found");
       }
     } else {
-      console.warn(`[REDIRECT_WARN] Link is inactive: ${qrId}`);
       setErrorStatus("inactive");
     }
-  }, [data, isLoading, error, hasTracked, db, qrId]);
+  }, [data, isLoading, error, hasRedirected, db, qrId]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -88,7 +85,7 @@ export default function RedirectPage() {
             <Loader2 className="h-16 w-16 animate-spin text-primary" />
             <div className="text-center">
               <h2 className="text-2xl font-bold text-primary font-headline">Redirecting...</h2>
-              <p className="text-muted-foreground">Please wait while we connect you.</p>
+              <p className="text-muted-foreground">Please wait while we connect you to the destination.</p>
             </div>
           </div>
         ) : errorStatus ? (
@@ -101,10 +98,10 @@ export default function RedirectPage() {
             </h1>
             <p className="text-muted-foreground mb-8">
               {errorStatus === "inactive" 
-                ? "This link is temporarily disabled." 
+                ? "This QR code link has been disabled by the owner or an administrator." 
                 : errorStatus === "error"
-                ? "There was a problem reaching the destination. Please try again."
-                : "The scanned QR code is invalid or has been removed."}
+                ? "There was a problem reaching our database. Please try scanning again."
+                : "The scanned QR code is invalid or has been removed from our system."}
             </p>
             <Button asChild className="w-full h-14 rounded-2xl text-lg font-semibold">
               <Link href="/"><ArrowLeft className="mr-2 h-5 w-5" /> Return to Home</Link>
@@ -113,7 +110,7 @@ export default function RedirectPage() {
         ) : (
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-10 w-10 animate-spin text-primary opacity-50" />
-            <p className="text-muted-foreground">Forwarding...</p>
+            <p className="text-muted-foreground">Forwarding to destination...</p>
           </div>
         )}
       </main>

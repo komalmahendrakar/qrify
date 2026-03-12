@@ -14,6 +14,7 @@ export function initializeFirebase() {
     return getSdks(getApp());
   }
 
+  // Explicitly map config to ensure Vercel environments pick up the keys correctly.
   const config = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || firebaseConfig.apiKey,
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
@@ -28,9 +29,9 @@ export function initializeFirebase() {
     // We explicitly provide the config object because Vercel does not support 
     // the auto-discovery mechanism used by Firebase App Hosting.
     firebaseApp = initializeApp(config);
+    console.log("[FIREBASE_INIT] Initialized with config for Project:", config.projectId);
   } catch (e) {
     console.error("Firebase Initialization Error:", e);
-    // Final fallback to the existing app if initialization failed but app exists
     firebaseApp = getApp();
   }
 
