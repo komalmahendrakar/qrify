@@ -20,6 +20,8 @@ export function QRGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [qrCodeDataUri, setQrCodeDataUri] = useState<string | null>(null);
+  const [qrCodeId, setQrCodeId] = useState<string | null>(null);
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
   const [saveId, setSaveId] = useState<string | null>(null);
   const [savedUserId, setSavedUserId] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
@@ -41,66 +43,53 @@ export function QRGenerator() {
   const handleGenerate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
-    // 1. Basic empty check
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
-      toast({
-        variant: "destructive",
-        title: "URL required",
-        description: "Please enter a destination URL.",
-      });
+      toast({ variant: "destructive", title: "URL required", description: "Please enter a destination URL." });
       return;
     }
 
-    // 2. Strict validation check
     if (!validateUrl(trimmedUrl)) {
-      toast({
-        variant: "destructive",
-        title: "Invalid URL",
-        description: "Please enter a valid URL starting with http:// or https://",
-      });
+      toast({ variant: "destructive", title: "Invalid URL", description: "Please enter a valid URL starting with http:// or https://" });
       return;
     }
 
-    // 3. Rate limiting check
     const now = Date.now();
     if (now - lastGeneratedAt < GENERATION_COOLDOWN_MS) {
       const remaining = Math.ceil((GENERATION_COOLDOWN_MS - (now - lastGeneratedAt)) / 1000);
-      toast({
-        variant: "destructive",
-        title: "Rate limit reached",
-        description: `Please wait ${remaining} second${remaining === 1 ? '' : 's'} before generating again.`,
-      });
+      toast({ variant: "destructive", title: "Rate limit reached", description: `Please wait ${remaining} second${remaining === 1 ? '' : 's'} before generating again.` });
       return;
     }
 
     setIsGenerating(true);
     setSaveId(null);
+    
+    // Generate a new ID for the redirect link
+    const newId = crypto.randomUUID();
+    const newRedirectUrl = `${window.location.origin}/r/${newId}`;
+    
     try {
+      // AI Flow now encodes the REDIRECT URL, not the original URL
       const result = await generateStyledQrCode({ 
-        url: trimmedUrl, 
+        url: newRedirectUrl, 
         stylePrompt: stylePrompt.trim() || "classic minimalist" 
       });
+      
+      setQrCodeId(newId);
+      setRedirectUrl(newRedirectUrl);
       setQrCodeDataUri(result.qrCodeDataUri);
       setLastGeneratedAt(Date.now());
-      toast({
-        title: "QR Code Generated",
-        description: "Your scannable QR code is ready.",
-      });
+      toast({ title: "QR Code Generated", description: "Dynamic redirect code is ready." });
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Generation failed",
-        description: "Something went wrong while creating your QR code. Please check your URL.",
-      });
+      toast({ variant: "destructive", title: "Generation failed", description: "Something went wrong while creating your QR code." });
     } finally {
       setIsGenerating(false);
     }
   };
 
   const handleSave = async () => {
-    if (!qrCodeDataUri || !url || !user || !db) {
-      if (!user) toast({ variant: "destructive", title: "Authentication required", description: "You must be signed in (anonymously) to save your history." });
+    if (!qrCodeDataUri || !url || !user || !db || !qrCodeId) {
+      if (!user) toast({ variant: "destructive", title: "Authentication required", description: "Sign in to save history." });
       return;
     }
     
@@ -109,12 +98,11 @@ export function QRGenerator() {
       const trimmedUrl = url.trim();
       const { summary } = await suggestQrCodeDescription({ url: trimmedUrl });
       
-      const qrCodeId = crypto.randomUUID();
       const qrCodeRef = doc(db, 'users', user.uid, 'qr_codes', qrCodeId);
       
       const data = {
         id: qrCodeId,
-        originalUrl: trimmedUrl,
+        originalUrl: trimmedUrl, // The dynamic destination
         qrCodeImageUrl: qrCodeDataUri,
         title: summary,
         createdAt: serverTimestamp(),
@@ -126,40 +114,32 @@ export function QRGenerator() {
         .then(() => {
           setSaveId(qrCodeId);
           setSavedUserId(user.uid);
-          toast({
-            title: "Saved!",
-            description: `QR code saved as: ${summary}`,
-          });
+          toast({ title: "Saved!", description: `Dynamic QR saved: ${summary}` });
         })
         .catch(async (error) => {
-          const permissionError = new FirestorePermissionError({
+          errorEmitter.emit('permission-error', new FirestorePermissionError({
             path: qrCodeRef.path,
             operation: 'create',
             requestResourceData: data,
-          });
-          errorEmitter.emit('permission-error', permissionError);
+          }));
         });
 
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Save failed",
-        description: "Could not process your QR code for saving.",
-      });
+      toast({ variant: "destructive", title: "Save failed", description: "Could not process save." });
     } finally {
       setIsSaving(false);
     }
   };
 
   const downloadFile = async (format: 'png' | 'jpg' | 'svg') => {
-    if (!qrCodeDataUri) return;
+    if (!qrCodeDataUri || !redirectUrl) return;
 
     let downloadUrl = qrCodeDataUri;
     let fileName = `qrify-${Date.now()}.${format}`;
 
     if (format === 'svg') {
       try {
-        const svgString = await QRCode.toString(url, {
+        const svgString = await QRCode.toString(redirectUrl, {
           type: 'svg',
           width: 1024,
           margin: 2,
@@ -168,7 +148,7 @@ export function QRGenerator() {
         const blob = new Blob([svgString], { type: 'image/svg+xml' });
         downloadUrl = URL.createObjectURL(blob);
       } catch (e) {
-        toast({ variant: "destructive", title: "Download failed", description: "Could not generate SVG format." });
+        toast({ variant: "destructive", title: "Download failed", description: "Could not generate SVG." });
         return;
       }
     } else if (format === 'jpg') {
@@ -214,7 +194,7 @@ export function QRGenerator() {
       <Card className="shadow-lg border-primary/10">
         <CardHeader>
           <CardTitle className="font-headline text-primary">Configuration</CardTitle>
-          <CardDescription>Enter your destination and customize the aesthetic.</CardDescription>
+          <CardDescription>Dynamic QR codes allow you to change the destination later.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleGenerate} className="space-y-6">
@@ -254,7 +234,7 @@ export function QRGenerator() {
               ) : (
                 <>
                   <RefreshCw className="mr-2 h-5 w-5" />
-                  Generate Styled QR
+                  Generate Dynamic QR
                 </>
               )}
             </Button>
@@ -294,7 +274,7 @@ export function QRGenerator() {
                   disabled={isSaving}
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Save History
+                  Save to History
                 </Button>
               ) : (
                 <Button 
@@ -312,7 +292,7 @@ export function QRGenerator() {
           <div className="h-full w-full max-w-sm flex flex-col items-center justify-center border-2 border-dashed rounded-3xl p-12 text-center bg-muted/20 border-muted-foreground/20">
             <QrCode className="h-16 w-16 text-muted-foreground/30 mb-4" />
             <p className="text-muted-foreground text-sm max-w-[200px]">
-              Ready to create something beautiful. Enter a URL to start.
+              Dynamic QR codes track status and redirect via /r/[id].
             </p>
           </div>
         )}

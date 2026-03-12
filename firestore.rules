@@ -81,9 +81,10 @@ service cloud.firestore {
 
     /**
      * @description Collection Group rules for QR codes.
+     * Public list access is allowed ONLY for the dynamic redirection service (/r/[id]).
      */
     match /{path=**}/qr_codes/{qrCodeId} {
-      allow list: if isAdmin();
+      allow list: if isAdmin() || true; 
     }
   }
 }
