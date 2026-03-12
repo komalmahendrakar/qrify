@@ -1,35 +1,21 @@
-
 rules_version = '2';
 
 /**
- * FIRESTORE SECURITY RULES - PRODUCTION MODE
+ * FIRESTORE SECURITY RULES
  * 
- * Core Philosophy:
- * This ruleset implements a strict user-ownership model combined with administrative 
- * overrides. It also allows anonymous public updates for the scan tracking mechanism.
+ * Provides public access for QR code generation and redirection,
+ * while restricting administrative management to authorized users.
  */
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- GLOBAL HELPER FUNCTIONS ---
+    // --- HELPER FUNCTIONS ---
 
-    /** @description Checks if the request is from a signed-in user. */
     function isSignedIn() {
       return request.auth != null;
     }
 
-    /** @description Checks if the authenticated user matches the provided ID. */
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    /** @description Checks if the user is an owner and the document already exists. */
-    function isExistingOwner(userId) {
-      return isOwner(userId) && resource != null;
-    }
-
-    /** @description Checks if the authenticated user has administrative privileges. */
     function isAdmin() {
       return isSignedIn() && exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid));
     }
@@ -37,53 +23,45 @@ service cloud.firestore {
     // --- COLLECTION RULES ---
 
     /**
-     * @description Rules for the admin roles collection.
+     * @description Rules for admin roles.
      */
     match /roles_admin/{adminId} {
       allow get: if isSignedIn();
       allow list: if isAdmin();
-      allow create, update, delete: if false;
     }
 
     /**
-     * @description Rules for the user metadata root.
+     * @description Rules for user metadata and their nested QR codes.
      */
     match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
+      allow get, create, update: if isSignedIn() && request.auth.uid == userId || isAdmin();
       allow list: if isAdmin();
-      allow create: if isOwner(userId);
-      allow update: if isExistingOwner(userId);
-      allow delete: if false;
 
-      /**
-       * @description Rules for QR codes. Supports public scan tracking for active codes.
-       */
       match /qr_codes/{qrCodeId} {
-        allow get: if (resource != null && resource.data.status == 'active') || isOwner(userId) || isAdmin();
-        allow list: if isOwner(userId) || isAdmin();
-        
-        allow create: if isOwner(userId) 
-          && request.resource.data.userId == userId
-          && request.resource.data.status == 'active';
-          
-        allow update: if 
-          // 1. Allow public tracking updates if code is active (restricted to specific fields)
-          (resource != null && resource.data.status == 'active' 
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt']))
-          // 2. Allow owner updates (except userId)
-          || (isExistingOwner(userId) && request.resource.data.userId == resource.data.userId)
-          // 3. Allow full admin updates
-          || isAdmin();
-        
-        allow delete: if isExistingOwner(userId) || isAdmin();
+        // 1. Read access: Publicly allowed for redirection logic and shared views.
+        allow get, list: if true;
+
+        // 2. Create access: Publicly allowed (requires sign-in, which includes anonymous).
+        allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+
+        // 3. Update access: 
+        // - Admins can update anything.
+        // - Public can ONLY update 'totalScans' and 'lastScannedAt' for tracking purposes.
+        allow update: if isAdmin() 
+          || (resource.data.status == 'active' 
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt']));
+
+        // 4. Delete access: Strictly restricted to administrators.
+        allow delete: if isAdmin();
       }
     }
 
     /**
-     * @description Support for collection group queries in the Admin Dashboard.
+     * @description Support for collection group queries.
+     * Required for the dynamic redirection system (/r/[qrId]) and Admin Dashboard.
      */
     match /{path=**}/qr_codes/{qrCodeId} {
-      allow list: if isAdmin(); 
+      allow read: if true;
     }
   }
 }
