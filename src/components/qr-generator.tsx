@@ -18,9 +18,35 @@ export function QRGenerator() {
   const [qrCodeDataUri, setQrCodeDataUri] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const validateUrl = (string: string) => {
+    try {
+      new URL(string);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
   const handleGenerate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!url) return;
+    
+    if (!url) {
+      toast({
+        variant: "destructive",
+        title: "URL required",
+        description: "Please enter a destination URL.",
+      });
+      return;
+    }
+
+    if (!validateUrl(url)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid URL",
+        description: "Please enter a valid URL (e.g., https://google.com).",
+      });
+      return;
+    }
 
     setIsGenerating(true);
     try {
@@ -29,11 +55,15 @@ export function QRGenerator() {
         stylePrompt: stylePrompt || "classic minimalist" 
       });
       setQrCodeDataUri(result.qrCodeDataUri);
+      toast({
+        title: "QR Code Generated",
+        description: "Your scannable QR code is ready.",
+      });
     } catch (error) {
       toast({
         variant: "destructive",
         title: "Generation failed",
-        description: "Something went wrong while creating your QR code.",
+        description: "Something went wrong while creating your QR code. Please try a simpler style.",
       });
     } finally {
       setIsGenerating(false);
@@ -69,6 +99,8 @@ export function QRGenerator() {
     if (!qrCodeDataUri) return;
     const link = document.createElement('a');
     link.href = qrCodeDataUri;
+    // Note: Since AI output is base64 raster, SVG download for AI-styled codes 
+    // is currently served as the high-res raster version.
     link.download = `qrify-code.${format}`;
     document.body.appendChild(link);
     link.click();

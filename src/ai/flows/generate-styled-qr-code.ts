@@ -9,7 +9,8 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import {googleAI} from '@genkit-ai/google-genai'; // Required to reference googleAI models
+import {googleAI} from '@genkit-ai/google-genai';
+import QRCode from 'qrcode';
 
 // Define the input schema for the styled QR code generation.
 const GenerateStyledQrCodeInputSchema = z.object({
@@ -57,29 +58,56 @@ const generateStyledQrCodeFlow = ai.defineFlow(
   async (input) => {
     const {url, stylePrompt} = input;
 
-    // Call the Gemini 2.5 Flash Image model to generate the styled QR code.
-    // The prompt instructs the model to create a scannable QR code incorporating the given style.
+    // 1. Generate a high-quality standard QR code using the qrcode library.
+    // This ensures that the base pattern is technically perfect and scannable.
+    const baseQrDataUri = await QRCode.toDataURL(url, {
+      width: 1024,
+      margin: 2,
+      errorCorrectionLevel: 'H', // High error correction allows for more artistic styling
+      color: {
+        dark: '#000000',
+        light: '#ffffff',
+      },
+    });
+
+    // 2. If the user wants a simple classic QR code, return the library result immediately.
+    const lowerStyle = stylePrompt.toLowerCase();
+    if (lowerStyle.includes('classic') || lowerStyle.includes('minimalist') || lowerStyle === 'standard') {
+      return {qrCodeDataUri: baseQrDataUri};
+    }
+
+    // 3. Use Gemini to style the base QR code according to the prompt.
+    // We pass the perfectly scannable QR code as a reference.
     const response = await ai.generate({
       model: googleAI.model('gemini-2.5-flash-image'),
       prompt: [
         {
-          text: `Generate a high-quality, perfectly scannable QR code for the following URL: ${url}.\n          \n          Integrate the QR code with the following visual style and theme: "${stylePrompt}".\n          \n          Ensure the generated image is a unique and branded QR code that aesthetically incorporates the style, maintaining absolute scannability. The style elements should not interfere with the QR code's pattern or readability. Output only the QR code image.`,
+          media: {
+            url: baseQrDataUri,
+            contentType: 'image/png'
+          }
+        },
+        {
+          text: `You are a professional graphic designer. Take the provided scannable QR code image and apply the following artistic style to it: "${stylePrompt}".
+          
+          CRITICAL RULES:
+          1. The output must be a single, complete, high-quality image.
+          2. The QR code pattern MUST remain 100% scannable. Do not obscure or significantly distort the core data modules or the three large corner squares (finders).
+          3. Integrate the style into the modules (dots/squares) and the background.
+          4. Output ONLY the resulting styled QR code image.`,
         },
       ],
       config: {
-        // As per documentation, for gemini-2.5-flash-image, MUST provide both TEXT and IMAGE.
         responseModalities: ['TEXT', 'IMAGE'],
       },
     });
 
-    // Check if the response contains media (the generated image).
+    // Check if the response contains media.
     if (!response.media || response.media.length === 0 || !response.media[0].url) {
-      throw new Error('Failed to generate a valid QR code image from the AI model.');
+      // Fallback to the scannable base QR if AI styling fails
+      return {qrCodeDataUri: baseQrDataUri};
     }
 
-    // Extract the data URI of the generated QR code image.
-    const qrCodeDataUri = response.media[0].url;
-
-    return {qrCodeDataUri};
+    return {qrCodeDataUri: response.media[0].url};
   }
 );
