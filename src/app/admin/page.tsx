@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
@@ -34,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Bar, BarChart, CartesianGrid, XAxis, Pie, PieChart, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { getBaseUrl } from "@/lib/urls";
 
 export default function AdminPage() {
   const [search, setSearch] = useState("");
@@ -127,7 +127,8 @@ export default function AdminPage() {
   };
 
   const handleCopyLink = (qr: any) => {
-    const redirectUrl = `${window.location.origin}/r/${qr.id}`;
+    const baseUrl = getBaseUrl();
+    const redirectUrl = `${baseUrl}/r/${qr.id}`;
     navigator.clipboard.writeText(redirectUrl);
     setCopiedId(qr.id);
     toast({ title: "Link Copied" });

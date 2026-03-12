@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useFirestore, useUser, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, deleteDoc, query, orderBy } from "firebase/firestore";
+import { getBaseUrl } from "@/lib/urls";
 
 export default function Dashboard() {
   const [search, setSearch] = useState("");
@@ -40,7 +41,8 @@ export default function Dashboard() {
   };
 
   const handleShare = (qr: any) => {
-    const shareUrl = `${window.location.origin}/share/${user?.uid}/${qr.id}`;
+    const baseUrl = getBaseUrl();
+    const shareUrl = `${baseUrl}/share/${user?.uid}/${qr.id}`;
     navigator.clipboard.writeText(shareUrl);
     setCopiedId(qr.id);
     toast({ title: "Link Copied", description: "Public share link copied to clipboard." });

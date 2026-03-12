@@ -10,6 +10,7 @@ import { suggestQrCodeDescription } from "@/ai/flows/suggest-qr-code-description
 import { useToast } from "@/hooks/use-toast";
 import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from "@/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getBaseUrl } from "@/lib/urls";
 import QRCode from 'qrcode';
 
 const GENERATION_COOLDOWN_MS = 3000;
@@ -66,10 +67,10 @@ export function QRGenerator() {
     
     // Generate a new ID for the redirect link
     const newId = crypto.randomUUID();
-    const newRedirectUrl = `${window.location.origin}/r/${newId}`;
+    const baseUrl = getBaseUrl();
+    const newRedirectUrl = `${baseUrl}/r/${newId}`;
     
     try {
-      // AI Flow now encodes the REDIRECT URL, not the original URL
       const result = await generateStyledQrCode({ 
         url: newRedirectUrl, 
         stylePrompt: stylePrompt.trim() || "classic minimalist" 
@@ -102,7 +103,7 @@ export function QRGenerator() {
       
       const data = {
         id: qrCodeId,
-        originalUrl: trimmedUrl, // The dynamic destination
+        originalUrl: trimmedUrl,
         qrCodeImageUrl: qrCodeDataUri,
         title: summary,
         createdAt: serverTimestamp(),
@@ -182,7 +183,8 @@ export function QRGenerator() {
 
   const copyShareLink = () => {
     if (!saveId || !savedUserId) return;
-    const shareUrl = `${window.location.origin}/share/${savedUserId}/${saveId}`;
+    const baseUrl = getBaseUrl();
+    const shareUrl = `${baseUrl}/share/${savedUserId}/${saveId}`;
     navigator.clipboard.writeText(shareUrl);
     setIsCopied(true);
     toast({ title: "Link Copied", description: "Public shareable link is now in your clipboard." });
