@@ -107,8 +107,9 @@ export function QRGenerator() {
         qrCodeImageUrl: qrCodeDataUri,
         title: summary,
         createdAt: serverTimestamp(),
-        status: 'active',
+        status: 'active', // Ensure default status is active for immediate use
         userId: user.uid,
+        totalScans: 0,
       };
 
       setDoc(qrCodeRef, data)
