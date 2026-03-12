@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useParams } from "next/navigation";
@@ -12,7 +11,7 @@ import Link from "next/link";
 
 /**
  * @fileOverview Redirect handler for dynamic QR codes.
- * Fetches the original URL from Firestore and increments scan count.
+ * Fetches the original URL from Firestore, increments scan count, and redirects if active.
  */
 export default function RedirectPage() {
   const params = useParams();
@@ -21,7 +20,7 @@ export default function RedirectPage() {
   const [errorStatus, setErrorStatus] = useState<"not_found" | "inactive" | null>(null);
   const [hasTracked, setHasTracked] = useState(false);
 
-  // Query the collection group to find the QR code by its unique ID
+  // 1. Query the collection group to find the QR code by its unique ID across all users
   const qrQuery = useMemoFirebase(() => {
     if (!db || !qrId) return null;
     return query(
@@ -34,25 +33,29 @@ export default function RedirectPage() {
   const { data, isLoading } = useCollection(qrQuery);
 
   useEffect(() => {
+    // Wait for the query to finish and avoid double-tracking
     if (isLoading || !data || hasTracked) return;
 
+    // Handle case where QR ID doesn't exist
     if (data.length === 0) {
       setErrorStatus("not_found");
       return;
     }
 
     const qr = data[0];
+
+    // Handle status logic
     if (qr.status === 'active') {
       setHasTracked(true);
 
-      // 1. Track the scan (non-blocking fire-and-forget)
+      // 2. Track the scan (non-blocking)
       if (db && qr.userId) {
         const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
         updateDoc(qrRef, {
           totalScans: increment(1),
           lastScannedAt: serverTimestamp()
         }).catch(async (err) => {
-          // Emit permission error if rules deny the tracking update
+          // Fallback error logging for rules denial
           errorEmitter.emit('permission-error', new FirestorePermissionError({
             path: qrRef.path,
             operation: 'update',
@@ -61,9 +64,10 @@ export default function RedirectPage() {
         });
       }
 
-      // 2. Perform the redirect immediately
+      // 3. Perform the redirect immediately to original_url
       window.location.href = qr.originalUrl;
     } else {
+      // Show "inactive" message if status is not "active"
       setErrorStatus("inactive");
     }
   }, [data, isLoading, hasTracked, db]);
@@ -82,12 +86,12 @@ export default function RedirectPage() {
             </div>
             <div className="space-y-2 text-center">
               <h2 className="text-2xl font-bold text-primary font-headline">Redirecting</h2>
-              <p className="text-muted-foreground animate-pulse">Scanning destination...</p>
+              <p className="text-muted-foreground animate-pulse">Accessing dynamic destination...</p>
             </div>
           </div>
         ) : errorStatus ? (
           <div className="max-w-md w-full p-8 md:p-12 bg-card border border-primary/10 rounded-[2.5rem] shadow-2xl animate-in zoom-in-95 fade-in duration-500 text-center">
-            <div className="mx-auto w-24 h-24 bg-destructive/10 rounded-3xl flex items-center justify-center mb-8 rotate-3 transition-transform duration-300">
+            <div className="mx-auto w-24 h-24 bg-destructive/10 rounded-3xl flex items-center justify-center mb-8">
               <AlertCircle className="h-12 w-12 text-destructive" />
             </div>
             
@@ -97,8 +101,8 @@ export default function RedirectPage() {
             
             <p className="text-muted-foreground mb-10 text-lg leading-relaxed">
               {errorStatus === "inactive" 
-                ? "This QR code is currently inactive. It may have been disabled by the owner." 
-                : "The QR code you scanned does not exist in our database."}
+                ? "This QR code has been deactivated by the administrator or the owner." 
+                : "The QR code you scanned does not exist in our system."}
             </p>
             
             <div className="space-y-4">
@@ -113,7 +117,7 @@ export default function RedirectPage() {
       </main>
       
       <footer className="py-8 text-center opacity-50">
-        <p className="text-xs">Dynamic redirection tracking enabled</p>
+        <p className="text-xs">Dynamic tracking enabled • QRify Redirect Service</p>
       </footer>
     </div>
   );

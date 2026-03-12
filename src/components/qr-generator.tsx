@@ -65,12 +65,13 @@ export function QRGenerator() {
     setIsGenerating(true);
     setSaveId(null);
     
-    // Generate a new ID for the redirect link
+    // 1. Generate a new unique ID for the dynamic redirect
     const newId = crypto.randomUUID();
     const baseUrl = getBaseUrl();
     const newRedirectUrl = `${baseUrl}/r/${newId}`;
     
     try {
+      // 2. Generate the QR code using the redirect URL, not the original URL
       const result = await generateStyledQrCode({ 
         url: newRedirectUrl, 
         stylePrompt: stylePrompt.trim() || "classic minimalist" 
@@ -107,7 +108,7 @@ export function QRGenerator() {
         qrCodeImageUrl: qrCodeDataUri,
         title: summary,
         createdAt: serverTimestamp(),
-        status: 'active', // Ensure default status is active for immediate use
+        status: 'active', // Default to active immediately
         userId: user.uid,
         totalScans: 0,
       };
