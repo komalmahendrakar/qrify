@@ -1,15 +1,18 @@
+
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Search, Shield, Trash2, ExternalLink, QrCode as QrIcon, Loader2, AlertCircle, TrendingUp, BarChart3, PieChart as PieChartIcon } from "lucide-react";
-import { useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from "@/firebase";
+import { Search, Shield, Trash2, ExternalLink, QrCode as QrIcon, Loader2, AlertCircle, TrendingUp, BarChart3, PieChart as PieChartIcon, LogOut } from "lucide-react";
+import { useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError, useUser, useAuth } from "@/firebase";
 import { collectionGroup, query, orderBy, doc, deleteDoc, updateDoc } from "firebase/firestore";
+import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -20,11 +23,21 @@ export default function AdminPage() {
   const [search, setSearch] = useState("");
   const { toast } = useToast();
   const db = useFirestore();
+  const auth = useAuth();
+  const { user, isUserLoading } = useUser();
+  const router = useRouter();
+
+  // Enforce Admin Authentication
+  useEffect(() => {
+    if (!isUserLoading && (!user || user.isAnonymous)) {
+      router.push("/admin/login");
+    }
+  }, [user, isUserLoading, router]);
 
   const allQrsQuery = useMemoFirebase(() => {
-    if (!db) return null;
+    if (!db || !user || user.isAnonymous) return null;
     return query(collectionGroup(db, 'qr_codes'), orderBy('createdAt', 'desc'));
-  }, [db]);
+  }, [db, user]);
 
   const { data: qrcodes, isLoading, error } = useCollection(allQrsQuery);
 
@@ -36,13 +49,11 @@ export default function AdminPage() {
     const active = qrcodes.filter(q => q.status === 'active').length;
     const inactive = total - active;
 
-    // Status Data for Pie Chart
     const status = [
       { name: "Active", value: active, fill: "hsl(var(--primary))" },
       { name: "Inactive", value: inactive, fill: "hsl(var(--muted-foreground))" },
     ];
 
-    // Daily Data for Bar Chart (last 10 days)
     const dailyMap: Record<string, number> = {};
     [...qrcodes].reverse().forEach(qr => {
       const date = qr.createdAt?.toDate?.() || new Date();
@@ -97,11 +108,34 @@ export default function AdminPage() {
       });
   };
 
+  const handleLogout = async () => {
+    if (!auth) return;
+    try {
+      await signOut(auth);
+      toast({ title: "Logged Out", description: "You have been successfully logged out." });
+      router.push("/admin/login");
+    } catch (err) {
+      toast({ variant: "destructive", title: "Logout Failed", description: "Could not sign out." });
+    }
+  };
+
   const filtered = (qrcodes || []).filter(q => 
     q.title?.toLowerCase().includes(search.toLowerCase()) || 
     q.originalUrl?.toLowerCase().includes(search.toLowerCase()) ||
     q.id?.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (isUserLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user || user.isAnonymous) {
+    return null; // Will redirect in useEffect
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -114,17 +148,22 @@ export default function AdminPage() {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-primary font-headline">Admin Control Center</h1>
-              <p className="text-muted-foreground">Global oversight of all platform activity.</p>
+              <p className="text-muted-foreground">Logged in as {user.email}</p>
             </div>
           </div>
-          <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search database..." 
-              className="pl-10" 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="flex items-center gap-4">
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search database..." 
+                className="pl-10" 
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <Button variant="outline" size="icon" onClick={handleLogout} title="Logout">
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
