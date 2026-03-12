@@ -1,25 +1,26 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Navbar } from "@/components/navbar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Search, Shield, Trash2, ExternalLink, QrCode as QrIcon, Loader2, AlertCircle } from "lucide-react";
+import { Search, Shield, Trash2, ExternalLink, QrCode as QrIcon, Loader2, AlertCircle, TrendingUp, BarChart3, PieChart as PieChartIcon } from "lucide-react";
 import { useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from "@/firebase";
 import { collectionGroup, query, orderBy, doc, deleteDoc, updateDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Bar, BarChart, CartesianGrid, XAxis, Pie, PieChart, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
 export default function AdminPage() {
   const [search, setSearch] = useState("");
   const { toast } = useToast();
   const db = useFirestore();
 
-  // Collection Group query allows us to see all 'qr_codes' across all user subcollections
   const allQrsQuery = useMemoFirebase(() => {
     if (!db) return null;
     return query(collectionGroup(db, 'qr_codes'), orderBy('createdAt', 'desc'));
@@ -27,22 +28,61 @@ export default function AdminPage() {
 
   const { data: qrcodes, isLoading, error } = useCollection(allQrsQuery);
 
+  // Analytics Processing
+  const { dailyData, statusData, stats } = useMemo(() => {
+    if (!qrcodes) return { dailyData: [], statusData: [], stats: { total: 0, active: 0, inactive: 0 } };
+
+    const total = qrcodes.length;
+    const active = qrcodes.filter(q => q.status === 'active').length;
+    const inactive = total - active;
+
+    // Status Data for Pie Chart
+    const status = [
+      { name: "Active", value: active, fill: "hsl(var(--primary))" },
+      { name: "Inactive", value: inactive, fill: "hsl(var(--muted-foreground))" },
+    ];
+
+    // Daily Data for Bar Chart (last 10 days)
+    const dailyMap: Record<string, number> = {};
+    [...qrcodes].reverse().forEach(qr => {
+      const date = qr.createdAt?.toDate?.() || new Date();
+      const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      dailyMap[dateStr] = (dailyMap[dateStr] || 0) + 1;
+    });
+
+    const daily = Object.entries(dailyMap)
+      .map(([date, count]) => ({ date, count }))
+      .slice(-10);
+
+    return { 
+      dailyData: daily, 
+      statusData: status, 
+      stats: { total, active, inactive } 
+    };
+  }, [qrcodes]);
+
+  const chartConfig = {
+    count: {
+      label: "Generations",
+      color: "hsl(var(--primary))",
+    },
+    Active: {
+      label: "Active",
+      color: "hsl(var(--primary))",
+    },
+    Inactive: {
+      label: "Inactive",
+      color: "hsl(var(--muted-foreground))",
+    }
+  } satisfies ChartConfig;
+
   const handleDelete = (qr: any) => {
     if (!db || !confirm("Admin Action: Are you sure you want to delete this global record?")) return;
-    
     const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
-    
-    // Non-blocking delete pattern
     deleteDoc(qrRef)
-      .then(() => {
-        toast({ title: "Record Deleted", description: "Successfully removed from global database." });
-      })
-      .catch(async (err) => {
-        const permissionError = new FirestorePermissionError({
-          path: qrRef.path,
-          operation: 'delete',
-        });
-        errorEmitter.emit('permission-error', permissionError);
+      .then(() => toast({ title: "Record Deleted" }))
+      .catch(async () => {
+        errorEmitter.emit('permission-error', new FirestorePermissionError({ path: qrRef.path, operation: 'delete' }));
       });
   };
 
@@ -50,29 +90,11 @@ export default function AdminPage() {
     if (!db) return;
     const newStatus = checked ? 'active' : 'inactive';
     const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
-    
-    // Non-blocking update pattern
     updateDoc(qrRef, { status: newStatus })
-      .then(() => {
-        toast({ 
-          title: "Status Updated", 
-          description: `QR Code is now ${newStatus}.` 
-        });
-      })
-      .catch(async (err) => {
-        const permissionError = new FirestorePermissionError({
-          path: qrRef.path,
-          operation: 'update',
-          requestResourceData: { status: newStatus }
-        });
-        errorEmitter.emit('permission-error', permissionError);
+      .then(() => toast({ title: "Status Updated", description: `Set to ${newStatus}` }))
+      .catch(async () => {
+        errorEmitter.emit('permission-error', new FirestorePermissionError({ path: qrRef.path, operation: 'update', requestResourceData: { status: newStatus } }));
       });
-  };
-
-  const stats = {
-    total: qrcodes?.length || 0,
-    active: qrcodes?.filter(q => q.status === 'active').length || 0,
-    inactive: qrcodes?.filter(q => q.status === 'inactive').length || 0,
   };
 
   const filtered = (qrcodes || []).filter(q => 
@@ -111,12 +133,13 @@ export default function AdminPage() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Access Denied</AlertTitle>
             <AlertDescription>
-              You do not have administrative privileges to view this data. Please ensure your UID is in the roles_admin collection.
+              You do not have administrative privileges. Ensure your UID is in the roles_admin collection.
             </AlertDescription>
           </Alert>
         )}
 
-        <div className="grid gap-6 md:grid-cols-3 mb-12">
+        {/* Top Level Stats */}
+        <div className="grid gap-6 md:grid-cols-3 mb-8">
           <Card className="border-primary/10 shadow-md">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Total QR Codes</CardTitle>
@@ -124,37 +147,101 @@ export default function AdminPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{isLoading ? "..." : stats.total}</div>
-              <p className="text-xs text-muted-foreground">Generated across all users</p>
             </CardContent>
           </Card>
           <Card className="border-primary/10 shadow-md">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Active Codes</CardTitle>
-              <div className="h-2 w-2 rounded-full bg-green-500" />
+              <div className="h-2 w-2 rounded-full bg-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-green-600 dark:text-green-400">
-                {isLoading ? "..." : stats.active}
-              </div>
-              <p className="text-xs text-muted-foreground">Currently operational</p>
+              <div className="text-3xl font-bold text-primary">{isLoading ? "..." : stats.active}</div>
             </CardContent>
           </Card>
           <Card className="border-primary/10 shadow-md">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Inactive Codes</CardTitle>
-              <div className="h-2 w-2 rounded-full bg-red-500" />
+              <div className="h-2 w-2 rounded-full bg-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-red-600 dark:text-red-400">
-                {isLoading ? "..." : stats.inactive}
-              </div>
-              <p className="text-xs text-muted-foreground">Archived or disabled</p>
+              <div className="text-3xl font-bold text-muted-foreground">{isLoading ? "..." : stats.inactive}</div>
             </CardContent>
           </Card>
         </div>
 
+        {/* Analytics Section */}
+        <div className="grid gap-6 md:grid-cols-2 mb-12">
+          <Card className="border-primary/10 shadow-lg">
+            <CardHeader className="flex flex-row items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle className="text-lg">Generation Trend</CardTitle>
+                <CardDescription>Daily QR codes generated (Last 10 days)</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="h-[300px] pt-4">
+              <ChartContainer config={chartConfig} className="h-full w-full">
+                <BarChart data={dailyData}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis 
+                    dataKey="date" 
+                    tickLine={false} 
+                    tickMargin={10} 
+                    axisLine={false}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar 
+                    dataKey="count" 
+                    fill="var(--color-count)" 
+                    radius={[4, 4, 0, 0]} 
+                  />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card className="border-primary/10 shadow-lg">
+            <CardHeader className="flex flex-row items-center gap-2">
+              <PieChartIcon className="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle className="text-lg">Status Distribution</CardTitle>
+                <CardDescription>Active vs Inactive composition</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="h-[300px] flex items-center justify-center pt-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={statusData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                  >
+                    {statusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute flex flex-col items-center justify-center">
+                <span className="text-2xl font-bold">{stats.total}</span>
+                <span className="text-[10px] text-muted-foreground uppercase">Total</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Data Table */}
         <Card className="border-primary/10 shadow-lg overflow-hidden">
-          <CardHeader className="border-b bg-muted/30">
+          <CardHeader className="border-b bg-muted/30 flex flex-row items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
             <CardTitle>Global History</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -175,7 +262,7 @@ export default function AdminPage() {
                     <TableCell colSpan={6} className="text-center py-20">
                       <div className="flex flex-col items-center gap-3">
                         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        <span className="text-muted-foreground">Querying global database...</span>
+                        <span className="text-muted-foreground">Querying database...</span>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -218,7 +305,7 @@ export default function AdminPage() {
                             checked={qr.status === 'active'} 
                             onCheckedChange={(checked) => handleToggleStatus(qr, checked)}
                           />
-                          <Badge variant={qr.status === 'active' ? 'secondary' : 'outline'}>
+                          <Badge variant={qr.status === 'active' ? 'default' : 'outline'}>
                             {qr.status || 'active'}
                           </Badge>
                         </div>
