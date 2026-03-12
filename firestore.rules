@@ -16,45 +16,41 @@ service cloud.firestore {
       return isSignedIn() && exists(/databases/$(database)/documents/roles_admin/$(request.auth.uid)); 
     }
 
-    // 1. User and Admin specific rules for the hierarchical structure
+    // 1. GLOBAL COLLECTION GROUP RULES
+    // This governs the /r/[qrId] redirect engine lookups.
+    // We must allow 'list' (queries) and 'get' (direct fetch) globally.
+    match /{path=**}/qr_codes/{qrCodeId} {
+      allow read: if true;
+      
+      // Allow creation for anyone (anonymous or signed in)
+      allow create: if true;
+
+      // Allow public to update scan counts ONLY
+      allow update: if (
+        resource.data.status == 'active' 
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt'])
+      ) || isAdmin();
+
+      // Only admins can delete
+      allow delete: if isAdmin();
+    }
+
+    // 2. USER PROFILE RULES
     match /users/{userId} {
-      // Users can manage their own profile and records
       allow get, create, update: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
       
+      // Note: The /qr_codes sub-collection rules are already covered by the global match above.
+      // However, we can add specific 'list' restrictions for the Dashboard view if needed.
       match /qr_codes/{qrCodeId} {
-        // Individual document access
-        allow get: if true;
+        // Users can list their own codes in the dashboard
         allow list: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
-
-        // Creation is public to allow anonymous generation
-        allow create: if true;
-
-        // Public can ONLY update scan counts for active QR codes. 
-        // Admins have full update rights.
-        allow update: if (
-          resource.data.status == 'active' 
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt'])
-        ) || isAdmin();
-
-        // Deletion restricted to admins
-        allow delete: if isAdmin();
       }
     }
 
-    // 2. Admin role management
+    // 3. ADMIN ROLE MANAGEMENT
     match /roles_admin/{adminId} {
       allow get: if isSignedIn();
       allow list: if isAdmin();
-    }
-
-    // 3. COLLECTION GROUP RULES
-    // CRITICAL: This allows the /r/[qrId] redirect engine to perform public lookups
-    // across all sub-collections without needing to know the parent userId.
-    match /{path=**}/qr_codes/{qrCodeId} {
-      // 'read' allows both 'get' and 'list' (queries) for redirection logic
-      allow read: if true;
-      // Allow creation for anonymous generators
-      allow create: if true;
     }
   }
 }
