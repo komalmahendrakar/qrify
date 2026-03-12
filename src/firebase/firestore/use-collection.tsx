@@ -82,6 +82,8 @@ export function useCollection<T = any>(
         setIsLoading(false);
       },
       async (err: FirestoreError) => {
+        console.error("[useCollection_HOOK_ERROR]", err);
+        
         // Safe path extraction for CollectionReference vs Query vs CollectionGroup
         let path = "unknown";
         if (memoizedTargetRefOrQuery.type === 'collection') {

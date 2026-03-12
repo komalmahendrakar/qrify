@@ -1,19 +1,20 @@
+
 "use client";
 
 import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Download, Save, RefreshCw, Wand2, Globe, QrCode, Share2, Check, Copy, AlertCircle } from "lucide-react";
+import { Loader2, Download, Save, RefreshCw, Wand2, Globe, QrCode, Share2, Check, Copy } from "lucide-react";
 import { generateStyledQrCode } from "@/ai/flows/generate-styled-qr-code";
 import { suggestQrCodeDescription } from "@/ai/flows/suggest-qr-code-description-flow";
 import { useToast } from "@/hooks/use-toast";
-import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from "@/firebase";
+import { useFirestore, useUser } from "@/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { getBaseUrl } from "@/lib/urls";
 import QRCode from 'qrcode';
 
-const GENERATION_COOLDOWN_MS = 3000;
+const GENERATION_COOLDOWN_MS = 2000;
 
 export function QRGenerator() {
   const [url, setUrl] = useState("");
@@ -45,31 +46,27 @@ export function QRGenerator() {
     if (e) e.preventDefault();
     
     const trimmedUrl = url.trim();
-    if (!trimmedUrl) {
-      toast({ variant: "destructive", title: "URL required", description: "Please enter a destination URL." });
-      return;
-    }
-
-    if (!validateUrl(trimmedUrl)) {
+    if (!trimmedUrl || !validateUrl(trimmedUrl)) {
       toast({ variant: "destructive", title: "Invalid URL", description: "Please enter a valid URL starting with http:// or https://" });
       return;
     }
 
     const now = Date.now();
     if (now - lastGeneratedAt < GENERATION_COOLDOWN_MS) {
-      const remaining = Math.ceil((GENERATION_COOLDOWN_MS - (now - lastGeneratedAt)) / 1000);
-      toast({ variant: "destructive", title: "Rate limit reached", description: `Please wait ${remaining} second${remaining === 1 ? '' : 's'} before generating again.` });
+      toast({ variant: "destructive", title: "Wait a moment", description: "Generating codes too fast. Please wait 2 seconds." });
       return;
     }
 
     setIsGenerating(true);
     setSaveId(null);
     
-    const newId = crypto.randomUUID();
+    // Create a stable ID for the redirect lookup
+    const newId = crypto.randomUUID().split('-')[0] + Date.now().toString(36);
     const baseUrl = getBaseUrl();
     const newRedirectUrl = `${baseUrl}/r/${newId}`;
     
     try {
+      console.log(`[GEN_LOG] Generating QR for redirect URL: ${newRedirectUrl}`);
       const result = await generateStyledQrCode({ 
         url: newRedirectUrl, 
         stylePrompt: stylePrompt.trim() || "classic minimalist" 
@@ -79,9 +76,9 @@ export function QRGenerator() {
       setRedirectUrl(newRedirectUrl);
       setQrCodeDataUri(result.qrCodeDataUri);
       setLastGeneratedAt(Date.now());
-      toast({ title: "QR Code Generated", description: "Dynamic redirect code is ready." });
+      toast({ title: "QR Code Ready", description: "This code is now scannable. Click Save to enable tracking." });
     } catch (error) {
-      console.error("[GENERATION_ERROR]", error);
+      console.error("[GEN_ERROR]", error);
       toast({ variant: "destructive", title: "Generation failed", description: "Something went wrong while creating your QR code." });
     } finally {
       setIsGenerating(false);
@@ -90,21 +87,19 @@ export function QRGenerator() {
 
   const handleSave = async () => {
     if (!qrCodeDataUri || !url || !user || !db || !qrCodeId) {
-      if (!user) toast({ variant: "destructive", title: "Authentication required", description: "Sign in to save history." });
+      if (!user) toast({ variant: "destructive", title: "Auth Required", description: "Please sign in to save codes." });
       return;
     }
     
     setIsSaving(true);
     try {
       const trimmedUrl = url.trim();
-      
-      // AI title suggestion with built-in fallback to domain if AI fails (prevents 500)
       const { summary } = await suggestQrCodeDescription({ url: trimmedUrl });
       
       const qrCodeRef = doc(db, 'users', user.uid, 'qr_codes', qrCodeId);
       
       const data = {
-        id: qrCodeId,
+        id: qrCodeId, // CRITICAL: This must match the URL path parameter
         originalUrl: trimmedUrl,
         qrCodeImageUrl: qrCodeDataUri,
         title: summary || "My QR Code",
@@ -114,18 +109,19 @@ export function QRGenerator() {
         totalScans: 0,
       };
 
+      console.log(`[SAVE_LOG] Saving QR record to Firestore with ID: ${qrCodeId}`);
       await setDoc(qrCodeRef, data);
       
       setSaveId(qrCodeId);
       setSavedUserId(user.uid);
-      toast({ title: "Saved!", description: `Dynamic QR saved: ${summary}` });
+      toast({ title: "Saved!", description: `Tracking enabled for: ${summary}` });
 
     } catch (error: any) {
       console.error("[SAVE_ERROR]", error);
       toast({ 
         variant: "destructive", 
         title: "Save failed", 
-        description: error?.message || "Could not process save. Ensure your database is connected." 
+        description: error?.message || "Could not save. Check your database permissions." 
       });
     } finally {
       setIsSaving(false);
@@ -136,7 +132,7 @@ export function QRGenerator() {
     if (!qrCodeDataUri || !redirectUrl) return;
 
     let downloadUrl = qrCodeDataUri;
-    let fileName = `qrify-${Date.now()}.${format}`;
+    let fileName = `qrify-${qrCodeId || Date.now()}.${format}`;
 
     if (format === 'svg') {
       try {
@@ -187,7 +183,7 @@ export function QRGenerator() {
     const shareUrl = `${baseUrl}/share/${savedUserId}/${saveId}`;
     navigator.clipboard.writeText(shareUrl);
     setIsCopied(true);
-    toast({ title: "Link Copied", description: "Public shareable link is now in your clipboard." });
+    toast({ title: "Link Copied", description: "Public shareable link copied." });
     setTimeout(() => setIsCopied(false), 2000);
   };
 
@@ -196,7 +192,7 @@ export function QRGenerator() {
       <Card className="shadow-lg border-primary/10">
         <CardHeader>
           <CardTitle className="font-headline text-primary">Configuration</CardTitle>
-          <CardDescription>Dynamic QR codes allow you to change the destination later.</CardDescription>
+          <CardDescription>Enter a destination and style for your dynamic QR.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleGenerate} className="space-y-6">
@@ -231,7 +227,7 @@ export function QRGenerator() {
               {isGenerating ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Generating...
+                  Creating...
                 </>
               ) : (
                 <>
@@ -276,7 +272,7 @@ export function QRGenerator() {
                   disabled={isSaving}
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Save to History
+                  Save to Enable Tracking
                 </Button>
               ) : (
                 <Button 
@@ -285,7 +281,7 @@ export function QRGenerator() {
                   className="w-full text-white font-semibold flex items-center justify-center"
                 >
                   {isCopied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
-                  {isCopied ? "Link Copied!" : "Copy Share Link"}
+                  {isCopied ? "Link Copied!" : "Copy Public Share Link"}
                 </Button>
               )}
             </CardFooter>
@@ -294,7 +290,7 @@ export function QRGenerator() {
           <div className="h-full w-full max-w-sm flex flex-col items-center justify-center border-2 border-dashed rounded-3xl p-12 text-center bg-muted/20 border-muted-foreground/20">
             <QrCode className="h-16 w-16 text-muted-foreground/30 mb-4" />
             <p className="text-muted-foreground text-sm max-w-[200px]">
-              Dynamic QR codes track status and redirect via /r/[id].
+              Generate a QR code above to see the dynamic preview.
             </p>
           </div>
         )}
