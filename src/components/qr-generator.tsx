@@ -4,12 +4,13 @@ import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Download, Save, RefreshCw, Wand2, Globe, QrCode } from "lucide-react";
+import { Loader2, Download, Save, RefreshCw, Wand2, Globe, QrCode, Share2, Check, Copy } from "lucide-react";
 import { generateStyledQrCode } from "@/ai/flows/generate-styled-qr-code";
 import { suggestQrCodeDescription } from "@/ai/flows/suggest-qr-code-description-flow";
 import { useToast } from "@/hooks/use-toast";
 import { useFirestore, useUser, errorEmitter, FirestorePermissionError } from "@/firebase";
-import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import QRCode from 'qrcode';
 
 export function QRGenerator() {
   const [url, setUrl] = useState("");
@@ -17,6 +18,10 @@ export function QRGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [qrCodeDataUri, setQrCodeDataUri] = useState<string | null>(null);
+  const [saveId, setSaveId] = useState<string | null>(null);
+  const [savedUserId, setSavedUserId] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  
   const { toast } = useToast();
   const db = useFirestore();
   const { user } = useUser();
@@ -52,6 +57,7 @@ export function QRGenerator() {
     }
 
     setIsGenerating(true);
+    setSaveId(null); // Reset save state for new generation
     try {
       const result = await generateStyledQrCode({ 
         url, 
@@ -89,7 +95,7 @@ export function QRGenerator() {
       const data = {
         id: qrCodeId,
         originalUrl: url,
-        qrCodeImageUrl: qrCodeDataUri, // Using generic image field for base64
+        qrCodeImageUrl: qrCodeDataUri,
         title: summary,
         createdAt: serverTimestamp(),
         status: 'active',
@@ -98,6 +104,8 @@ export function QRGenerator() {
 
       setDoc(qrCodeRef, data)
         .then(() => {
+          setSaveId(qrCodeId);
+          setSavedUserId(user.uid);
           toast({
             title: "Saved!",
             description: `QR code for ${summary} has been saved to your dashboard.`,
@@ -123,14 +131,63 @@ export function QRGenerator() {
     }
   };
 
-  const downloadFile = (format: 'png' | 'jpg' | 'svg') => {
+  const downloadFile = async (format: 'png' | 'jpg' | 'svg') => {
     if (!qrCodeDataUri) return;
+
+    let downloadUrl = qrCodeDataUri;
+    let fileName = `qrify-code.${format}`;
+
+    // For SVG, if it's not a native SVG, we generate a high-quality scannable base SVG
+    if (format === 'svg') {
+      try {
+        const svgString = await QRCode.toString(url, {
+          type: 'svg',
+          width: 1024,
+          margin: 2,
+          errorCorrectionLevel: 'H'
+        });
+        const blob = new Blob([svgString], { type: 'image/svg+xml' });
+        downloadUrl = URL.createObjectURL(blob);
+      } catch (e) {
+        console.error("SVG generation failed", e);
+      }
+    } else if (format === 'jpg') {
+      // Convert Data URI to JPG if needed (usually it's PNG from canvas/AI)
+      const img = new Image();
+      img.src = qrCodeDataUri;
+      await new Promise(resolve => img.onload = resolve);
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        downloadUrl = canvas.toDataURL('image/jpeg', 0.9);
+      }
+    }
+
     const link = document.createElement('a');
-    link.href = qrCodeDataUri;
-    link.download = `qrify-code.${format}`;
+    link.href = downloadUrl;
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    
+    if (format === 'svg' && downloadUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(downloadUrl);
+    }
+  };
+
+  const copyShareLink = () => {
+    if (!saveId || !savedUserId) return;
+    const shareUrl = `${window.location.origin}/share/${savedUserId}/${saveId}`;
+    navigator.clipboard.writeText(shareUrl);
+    setIsCopied(true);
+    toast({ title: "Link Copied", description: "Shareable URL copied to clipboard." });
+    setTimeout(() => setIsCopied(false), 2000);
   };
 
   return (
@@ -210,10 +267,26 @@ export function QRGenerator() {
                   <Download className="h-3 w-3 mr-1" /> SVG
                 </Button>
               </div>
-              <Button onClick={handleSave} className="w-full bg-secondary hover:bg-secondary/90 text-white font-semibold" disabled={isSaving}>
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                Save to Dashboard
-              </Button>
+              
+              {!saveId ? (
+                <Button 
+                  onClick={handleSave} 
+                  className="w-full bg-secondary hover:bg-secondary/90 text-white font-semibold" 
+                  disabled={isSaving}
+                >
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  Save to Dashboard
+                </Button>
+              ) : (
+                <Button 
+                  onClick={copyShareLink} 
+                  variant="secondary"
+                  className="w-full text-white font-semibold flex items-center justify-center"
+                >
+                  {isCopied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+                  {isCopied ? "Link Copied!" : "Copy Share Link"}
+                </Button>
+              )}
             </CardFooter>
           </Card>
         ) : (

@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Globe, Download, Trash2, Calendar, Search } from "lucide-react";
+import { Globe, Download, Trash2, Calendar, Search, Share2, Copy, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +16,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const db = useFirestore();
   const { user } = useUser();
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const qrCodesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -36,6 +37,14 @@ export default function Dashboard() {
     } catch (e) {
       toast({ variant: "destructive", title: "Error", description: "Could not delete code." });
     }
+  };
+
+  const handleShare = (qr: any) => {
+    const shareUrl = `${window.location.origin}/share/${user?.uid}/${qr.id}`;
+    navigator.clipboard.writeText(shareUrl);
+    setCopiedId(qr.id);
+    toast({ title: "Link Copied", description: "Public share link copied to clipboard." });
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const filtered = (qrcodes || []).filter(q => 
@@ -103,6 +112,14 @@ export default function Dashboard() {
                     link.click();
                   }}>
                     <Download className="h-4 w-4 mr-2" /> Download
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="text-primary hover:bg-primary/10" 
+                    onClick={() => handleShare(qr)}
+                  >
+                    {copiedId === qr.id ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
                   </Button>
                   <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => qr.id && handleDelete(qr.id)}>
                     <Trash2 className="h-4 w-4" />
