@@ -62,10 +62,8 @@ const generateStyledQrCodeFlow = ai.defineFlow(
   async (input) => {
     const {url, stylePrompt} = input;
     
-    // Production Logging
-    console.info(`[QR_GEN] Starting generation for URL: ${url} with style: ${stylePrompt}`);
-
     // 1. Generate a high-quality standard QR code using the qrcode library.
+    // This is our primary scannable baseline.
     const baseQrDataUri = await QRCode.toDataURL(url, {
       width: 1024,
       margin: 2,
@@ -76,17 +74,18 @@ const generateStyledQrCodeFlow = ai.defineFlow(
       },
     });
 
-    // 2. Performance optimization: If the style is simple, bypass AI processing.
+    // 2. Performance optimization: If the style is simple, or if API keys are missing, bypass AI.
     const lowerStyle = stylePrompt.toLowerCase();
     const simpleStyles = ['classic', 'minimalist', 'standard', 'basic', 'default'];
-    if (simpleStyles.some(s => lowerStyle.includes(s)) && lowerStyle.length < 20) {
-      console.info(`[QR_GEN] Bypassing AI for simple style: ${stylePrompt}`);
+    const isMissingKey = !process.env.GOOGLE_GENAI_API_KEY && !process.env.GEMINI_API_KEY;
+
+    if (isMissingKey || (simpleStyles.some(s => lowerStyle.includes(s)) && lowerStyle.length < 20)) {
+      if (isMissingKey) console.warn("[QR_GEN] Missing AI API Key. Using standard QR style.");
       return {qrCodeDataUri: baseQrDataUri};
     }
 
     // 3. AI-Enhanced styling.
     try {
-      const startTime = Date.now();
       const response = await ai.generate({
         model: googleAI.model('gemini-2.5-flash-image'),
         prompt: [
@@ -113,8 +112,6 @@ const generateStyledQrCodeFlow = ai.defineFlow(
         },
       });
 
-      console.info(`[QR_GEN] AI Styling completed in ${Date.now() - startTime}ms`);
-
       if (response.media && response.media.length > 0 && response.media[0].url) {
         return {qrCodeDataUri: response.media[0].url};
       }
@@ -123,7 +120,6 @@ const generateStyledQrCodeFlow = ai.defineFlow(
     }
 
     // Fallback to the scannable base QR if AI styling fails
-    console.warn(`[QR_GEN] Falling back to base QR code for ${url}`);
     return {qrCodeDataUri: baseQrDataUri};
   }
 );

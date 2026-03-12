@@ -30,17 +30,28 @@ export type SuggestQrCodeDescriptionOutput = z.infer<typeof SuggestQrCodeDescrip
 export async function suggestQrCodeDescription(
   input: SuggestQrCodeDescriptionInput
 ): Promise<SuggestQrCodeDescriptionOutput> {
+  // Check for API key presence to fail fast and use fallback in dev/prod if not configured
+  if (!process.env.GOOGLE_GENAI_API_KEY && !process.env.GEMINI_API_KEY) {
+    console.warn("[AI_FLOW_WARN] No Google AI API key found. Using domain fallback for title.");
+    return generateFallbackTitle(input.url);
+  }
+
   try {
     return await suggestQrCodeDescriptionFlow(input);
   } catch (error) {
     console.error("[AI_FLOW_ERROR] suggestQrCodeDescription failed:", error);
-    // Fallback: Generate a simple title from the domain
-    try {
-      const domain = new URL(input.url).hostname.replace('www.', '');
-      return { summary: `Link to ${domain}` };
-    } catch {
-      return { summary: "New QR Code" };
-    }
+    return generateFallbackTitle(input.url);
+  }
+}
+
+/** Helper for generating a clean title from a URL when AI is unavailable. */
+function generateFallbackTitle(urlStr: string): SuggestQrCodeDescriptionOutput {
+  try {
+    const url = new URL(urlStr);
+    const domain = url.hostname.replace('www.', '');
+    return { summary: `Link to ${domain}` };
+  } catch {
+    return { summary: "My QR Code" };
   }
 }
 
