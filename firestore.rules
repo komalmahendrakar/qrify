@@ -1,9 +1,10 @@
+
 rules_version = '2';
 
 /**
  * FIRESTORE SECURITY RULES
- * - Public: Generate QR (create) & Redirect (read).
- * - Public Limited: Tracking (update only specific analytics fields).
+ * - Public: Generate QR (create) & Redirect (read via collectionGroup).
+ * - Tracking: Public update of scan metrics on active links.
  * - Admin: Full Management (all operations).
  */
 
@@ -23,7 +24,7 @@ service cloud.firestore {
         // Any signed-in (including anonymous) user can create their own history
         allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
 
-        // Public can ONLY update scan counts
+        // Public can ONLY update scan counts for active QR codes
         allow update: if (resource.data.status == 'active' 
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt']))
           || isAdmin();
@@ -37,7 +38,8 @@ service cloud.firestore {
       allow list: if isAdmin();
     }
 
-    // Required for the /r/[qrId] redirect logic
+    // CRITICAL: Required for the /r/[qrId] redirect logic (Collection Group Query)
+    // Allows looking up a QR code by its ID without knowing the parent userId path.
     match /{path=**}/qr_codes/{qrCodeId} {
       allow read: if true;
     }
