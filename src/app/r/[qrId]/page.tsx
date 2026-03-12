@@ -102,7 +102,7 @@ export default function RedirectPage() {
             <p className="text-muted-foreground mb-10 text-lg leading-relaxed">
               {errorStatus === "inactive" 
                 ? "This QR code has been deactivated by the administrator or the owner." 
-                : "The QR code you scanned does not exist in our system."}
+                : "The QR code you scanned does not exist in our system. Did you remember to save it?"}
             </p>
             
             <div className="space-y-4">

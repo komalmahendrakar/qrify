@@ -19,14 +19,14 @@ export function getBaseUrl() {
       origin.includes('googleusercontent.com') ||
       origin.includes('gitpod.io');
 
+    // If we are in production (e.g., Vercel or custom domain), use the current origin
     if (!isDevWorkstation) {
       return origin;
     }
   }
 
   // Fallback for cloud workstations or local dev.
-  // This allows you to scan QR codes on your phone that point to a live
-  // (though perhaps empty) Firebase Hosting domain for testing redirect logic.
-  // If you are using Vercel, you can also hardcode your vercel domain here.
+  // We prefer using the firebase hosting domain as a stable fallback for mobile testing
+  // if you haven't configured a custom local tunnel.
   return `https://${firebaseConfig.projectId}.web.app`;
 }
