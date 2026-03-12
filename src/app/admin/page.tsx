@@ -1,10 +1,11 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -12,13 +13,7 @@ import {
   Search, 
   Shield, 
   Trash2, 
-  ExternalLink, 
-  QrCode as QrIcon, 
   Loader2, 
-  AlertCircle, 
-  TrendingUp, 
-  BarChart3, 
-  PieChart as PieChartIcon, 
   LogOut,
   Copy,
   Download,
@@ -30,7 +25,6 @@ import { collectionGroup, query, orderBy, doc, deleteDoc, updateDoc } from "fire
 import { signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Bar, BarChart, CartesianGrid, XAxis, Pie, PieChart, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { getBaseUrl } from "@/lib/urls";
@@ -44,7 +38,7 @@ export default function AdminPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
 
-  // Enforce Admin Authentication
+  // Enforce Admin Authentication: Redirect if not logged in or if only anonymously signed in
   useEffect(() => {
     if (!isUserLoading && (!user || user.isAnonymous)) {
       router.push("/admin/login");
@@ -56,7 +50,7 @@ export default function AdminPage() {
     return query(collectionGroup(db, 'qr_codes'), orderBy('createdAt', 'desc'));
   }, [db, user]);
 
-  const { data: qrcodes, isLoading, error } = useCollection(allQrsQuery);
+  const { data: qrcodes, isLoading } = useCollection(allQrsQuery);
 
   // Analytics Processing
   const { dailyData, statusData, stats } = useMemo(() => {
@@ -94,14 +88,6 @@ export default function AdminPage() {
     count: {
       label: "Generations",
       color: "hsl(var(--primary))",
-    },
-    Active: {
-      label: "Active",
-      color: "hsl(var(--primary))",
-    },
-    Inactive: {
-      label: "Inactive",
-      color: "hsl(var(--muted-foreground))",
     }
   } satisfies ChartConfig;
 
@@ -156,7 +142,10 @@ export default function AdminPage() {
     q.id?.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (isUserLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+  // While checking auth status, show a loader
+  if (isUserLoading) return <div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
+  
+  // If not authorized, redirect effect will handle it. Render nothing meanwhile.
   if (!user || user.isAnonymous) return null;
 
   return (
@@ -166,35 +155,37 @@ export default function AdminPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
           <div className="flex items-center gap-3">
             <Shield className="h-6 w-6 text-primary" />
-            <h1 className="text-3xl font-bold font-headline">Admin Control Center</h1>
+            <h1 className="text-3xl font-bold font-headline">Admin Dashboard</h1>
           </div>
           <div className="flex items-center gap-4">
             <Input 
-              placeholder="Search..." 
+              placeholder="Search records..." 
               className="max-w-xs" 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <Button variant="outline" size="icon" onClick={handleLogout}><LogOut className="h-4 w-4" /></Button>
+            <Button variant="outline" size="sm" onClick={handleLogout} className="flex items-center gap-2">
+              <LogOut className="h-4 w-4" /> Sign Out
+            </Button>
           </div>
         </div>
 
         {/* Global Metrics */}
         <div className="grid gap-6 md:grid-cols-4 mb-8">
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Total QR Codes</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Generated</CardTitle></CardHeader>
             <CardContent><div className="text-3xl font-bold">{stats.total}</div></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Total Scans</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Global Scans</CardTitle></CardHeader>
             <CardContent><div className="text-3xl font-bold text-secondary">{stats.totalScans}</div></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Active</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Active Links</CardTitle></CardHeader>
             <CardContent><div className="text-3xl font-bold text-primary">{stats.active}</div></CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Inactive</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Inactive Links</CardTitle></CardHeader>
             <CardContent><div className="text-3xl font-bold text-muted-foreground">{stats.inactive}</div></CardContent>
           </Card>
         </div>
@@ -202,7 +193,7 @@ export default function AdminPage() {
         {/* Analytics Charts */}
         <div className="grid gap-6 md:grid-cols-2 mb-12">
           <Card className="shadow-lg">
-            <CardHeader><CardTitle className="text-lg">Generation Trend</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-lg">Generation Activity</CardTitle></CardHeader>
             <CardContent className="h-[250px]">
               <ChartContainer config={chartConfig}>
                 <BarChart data={dailyData}>
@@ -215,7 +206,7 @@ export default function AdminPage() {
             </CardContent>
           </Card>
           <Card className="shadow-lg">
-            <CardHeader><CardTitle className="text-lg">Status Breakdown</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-lg">Link Status Distribution</CardTitle></CardHeader>
             <CardContent className="h-[250px] flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -229,58 +220,64 @@ export default function AdminPage() {
           </Card>
         </div>
 
-        {/* Global Table */}
-        <Card className="shadow-lg overflow-hidden">
+        {/* Global Management Table */}
+        <Card className="shadow-lg overflow-hidden border-none">
           <CardContent className="p-0">
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-muted/30">
                 <TableRow>
-                  <TableHead>Preview</TableHead>
-                  <TableHead>Document ID</TableHead>
-                  <TableHead>Title & Destination</TableHead>
+                  <TableHead className="w-[80px]">Preview</TableHead>
+                  <TableHead>Destination & Title</TableHead>
                   <TableHead>Created</TableHead>
-                  <TableHead>Scans</TableHead>
+                  <TableHead>Total Scans</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-20"><Loader2 className="animate-spin mx-auto" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center py-20"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /></TableCell></TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="text-center py-20 text-muted-foreground">No records found matching your search.</TableCell></TableRow>
                 ) : filtered.map((qr) => (
                   <TableRow key={qr.id}>
                     <TableCell>
-                      <img src={qr.qrCodeImageUrl} className="w-10 h-10 border rounded" alt="" />
+                      <img src={qr.qrCodeImageUrl} className="w-12 h-12 border rounded-xl object-contain bg-white" alt="" />
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{qr.id}</TableCell>
                     <TableCell>
                       <div className="flex flex-col">
-                        <span className="font-semibold">{qr.title || 'Untitled'}</span>
-                        <a href={qr.originalUrl} target="_blank" className="text-xs text-secondary truncate max-w-[150px]">{qr.originalUrl}</a>
+                        <span className="font-semibold text-primary">{qr.title || 'Untitled Code'}</span>
+                        <a href={qr.originalUrl} target="_blank" className="text-xs text-secondary hover:underline truncate max-w-[200px]">{qr.originalUrl}</a>
                       </div>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {qr.createdAt?.toDate?.() ? qr.createdAt.toDate().toLocaleDateString() : 'Just now'}
+                      {qr.createdAt?.toDate?.() ? qr.createdAt.toDate().toLocaleDateString() : 'Pending...'}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1 font-semibold">
-                        <MousePointerClick className="h-3 w-3 text-secondary" />
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <MousePointerClick className="h-4 w-4 text-secondary" />
                         {qr.totalScans || 0}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
                         <Switch checked={qr.status === 'active'} onCheckedChange={(c) => handleToggleStatus(qr, c)} />
-                        <Badge variant={qr.status === 'active' ? 'default' : 'outline'}>{qr.status || 'active'}</Badge>
+                        <Badge variant={qr.status === 'active' ? 'default' : 'outline'} className="capitalize">
+                          {qr.status || 'active'}
+                        </Badge>
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleCopyLink(qr)}>
+                        <Button variant="ghost" size="icon" onClick={() => handleCopyLink(qr)} title="Copy Redirect Link">
                           {copiedId === qr.id ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDownload(qr)}><Download className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(qr)} className="text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDownload(qr)} title="Download Image">
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(qr)} className="text-destructive hover:bg-destructive/10" title="Delete Global Record">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>

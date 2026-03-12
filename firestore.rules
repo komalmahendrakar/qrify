@@ -2,7 +2,7 @@
 rules_version = '2';
 
 /**
- * FIRESTORE SECURITY RULES - PROTOTYPING MODE
+ * FIRESTORE SECURITY RULES - PRODUCTION MODE
  * 
  * Core Philosophy:
  * This ruleset implements a strict user-ownership model combined with administrative 
@@ -79,8 +79,11 @@ service cloud.firestore {
       }
     }
 
+    /**
+     * @description Support for collection group queries in the Admin Dashboard.
+     */
     match /{path=**}/qr_codes/{qrCodeId} {
-      allow list: if isAdmin() || true; 
+      allow list: if isAdmin(); 
     }
   }
 }

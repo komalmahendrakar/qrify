@@ -8,11 +8,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Shield, Loader2, AlertCircle, LogIn } from "lucide-react";
+import { Shield, Loader2, AlertCircle, LogIn, ArrowLeft } from "lucide-react";
 import { useAuth, useUser } from "@/firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import Link from "next/link";
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
@@ -43,21 +44,21 @@ export default function AdminLoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       toast({
         title: "Login Successful",
-        description: "Welcome to the Admin Control Center.",
+        description: "Welcome back, Administrator.",
       });
       router.push("/admin");
     } catch (err: any) {
       console.error("Login error:", err);
       let message = "Invalid email or password.";
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        message = "Invalid credentials. Please try again.";
+        message = "Invalid credentials. Please verify your email and password.";
       } else if (err.code === 'auth/too-many-requests') {
         message = "Too many failed attempts. Please try again later.";
       }
       setError(message);
       toast({
         variant: "destructive",
-        title: "Login Failed",
+        title: "Authentication Failed",
         description: message,
       });
     } finally {
@@ -79,15 +80,15 @@ export default function AdminLoginPage() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <main className="container mx-auto px-4 py-24 flex items-center justify-center">
+      <main className="container mx-auto px-4 py-24 flex flex-col items-center justify-center">
         <Card className="w-full max-w-md shadow-2xl border-primary/10">
           <CardHeader className="space-y-1 text-center">
             <div className="mx-auto bg-primary/10 p-3 rounded-2xl w-fit mb-4">
               <Shield className="h-10 w-10 text-primary" />
             </div>
-            <CardTitle className="text-2xl font-bold font-headline">Admin Access</CardTitle>
+            <CardTitle className="text-2xl font-bold font-headline">Admin Portal</CardTitle>
             <CardDescription>
-              Enter your credentials to manage the platform.
+              Sign in with your administrative credentials.
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleLogin}>
@@ -100,7 +101,7 @@ export default function AdminLoginPage() {
                 </Alert>
               )}
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">Admin Email</Label>
                 <Input 
                   id="email" 
                   type="email" 
@@ -121,7 +122,7 @@ export default function AdminLoginPage() {
                 />
               </div>
             </CardContent>
-            <CardFooter>
+            <CardFooter className="flex flex-col gap-4">
               <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
                 {isSubmitting ? (
                   <>
@@ -131,9 +132,14 @@ export default function AdminLoginPage() {
                 ) : (
                   <>
                     <LogIn className="mr-2 h-5 w-5" />
-                    Sign In
+                    Secure Sign In
                   </>
                 )}
+              </Button>
+              <Button variant="ghost" asChild className="w-full">
+                <Link href="/">
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Back to Home
+                </Link>
               </Button>
             </CardFooter>
           </form>
