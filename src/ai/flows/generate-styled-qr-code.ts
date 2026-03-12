@@ -1,10 +1,7 @@
 'use server';
 /**
- * @fileOverview A Genkit flow that generates a styled QR code based on a URL and a textual style description.
- *
- * - generateStyledQrCode - A function that handles the styled QR code generation process.
- * - GenerateStyledQrCodeInput - The input type for the generateStyledQrCode function.
- * - GenerateStyledQrCodeOutput - The return type for the generateStyledQrCode function.
+ * @fileOverview Genkit AI Flow for Styled QR Generation.
+ * Logic: Standard QR (toDataURL) -> Gemini 2.5 Flash Image -> Branded Styled QR.
  */
 
 import {ai} from '@/ai/genkit';
@@ -12,47 +9,19 @@ import {z} from 'genkit';
 import {googleAI} from '@genkit-ai/google-genai';
 import QRCode from 'qrcode';
 
-// Define the input schema for the styled QR code generation with stricter validation.
 const GenerateStyledQrCodeInputSchema = z.object({
-  url: z.string()
-    .trim()
-    .url('Please provide a valid URL.')
-    .startsWith('http', 'URL must start with http or https.')
-    .max(2000, 'URL is too long.')
-    .describe('The URL to be encoded in the QR code.'),
-  stylePrompt: z.string()
-    .trim()
-    .min(1, 'Style prompt cannot be empty.')
-    .max(500, 'Style prompt is too long.')
-    .describe(
-      "A text prompt describing the desired visual style or theme for the QR code."
-    ),
+  url: z.string().url().describe('The dynamic redirect URL.'),
+  stylePrompt: z.string().describe('Visual theme description.'),
 });
-export type GenerateStyledQrCodeInput = z.infer<
-  typeof GenerateStyledQrCodeInputSchema
->;
 
-// Define the output schema for the styled QR code generation.
 const GenerateStyledQrCodeOutputSchema = z.object({
-  qrCodeDataUri:
-    z.string().describe(
-      "The generated QR code as a data URI."
-    ),
+  qrCodeDataUri: z.string().describe('Base64 image of the styled QR.'),
 });
-export type GenerateStyledQrCodeOutput = z.infer<
-  typeof GenerateStyledQrCodeOutputSchema
->;
 
-/**
- * Generates a visually unique and branded QR code based on a URL and a style prompt.
- */
-export async function generateStyledQrCode(
-  input: GenerateStyledQrCodeInput
-): Promise<GenerateStyledQrCodeOutput> {
+export async function generateStyledQrCode(input: z.infer<typeof GenerateStyledQrCodeInputSchema>) {
   return generateStyledQrCodeFlow(input);
 }
 
-// Define the Genkit flow for styled QR code generation.
 const generateStyledQrCodeFlow = ai.defineFlow(
   {
     name: 'generateStyledQrCodeFlow',
@@ -62,64 +31,33 @@ const generateStyledQrCodeFlow = ai.defineFlow(
   async (input) => {
     const {url, stylePrompt} = input;
     
-    // 1. Generate a high-quality standard QR code using the qrcode library.
-    // This is our primary scannable baseline.
+    // Create base scannable QR
     const baseQrDataUri = await QRCode.toDataURL(url, {
       width: 1024,
       margin: 2,
       errorCorrectionLevel: 'H',
-      color: {
-        dark: '#000000',
-        light: '#ffffff',
-      },
     });
 
-    // 2. Performance optimization: If the style is simple, or if API keys are missing, bypass AI.
-    const lowerStyle = stylePrompt.toLowerCase();
-    const simpleStyles = ['classic', 'minimalist', 'standard', 'basic', 'default'];
-    const isMissingKey = !process.env.GOOGLE_GENAI_API_KEY && !process.env.GEMINI_API_KEY;
-
-    if (isMissingKey || (simpleStyles.some(s => lowerStyle.includes(s)) && lowerStyle.length < 20)) {
-      if (isMissingKey) console.warn("[QR_GEN] Missing AI API Key. Using standard QR style.");
+    // Fallback if no AI key
+    if (!process.env.GOOGLE_GENAI_API_KEY && !process.env.GEMINI_API_KEY) {
       return {qrCodeDataUri: baseQrDataUri};
     }
 
-    // 3. AI-Enhanced styling.
     try {
       const response = await ai.generate({
         model: googleAI.model('gemini-2.5-flash-image'),
         prompt: [
-          {
-            media: {
-              url: baseQrDataUri,
-              contentType: 'image/png'
-            }
-          },
-          {
-            text: `You are a professional graphic designer. Enhance the provided scannable QR code with this style: "${stylePrompt}".
-            
-            CRITICAL RULES:
-            1. The output MUST be 100% scannable. Do not obscure finder patterns (the large corner squares).
-            2. Integrate the style artistically into the dots and background.
-            3. Output ONLY the resulting image.`,
-          },
+          { media: { url: baseQrDataUri, contentType: 'image/png' } },
+          { text: `Enhance this QR code with style: "${stylePrompt}". Keep dots scannable. Output ONLY image.` }
         ],
-        config: {
-          responseModalities: ['TEXT', 'IMAGE'],
-          safetySettings: [
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_LOW_AND_ABOVE' }
-          ]
-        },
+        config: { responseModalities: ['TEXT', 'IMAGE'] },
       });
 
-      if (response.media && response.media.length > 0 && response.media[0].url) {
-        return {qrCodeDataUri: response.media[0].url};
-      }
+      if (response.media?.[0]?.url) return {qrCodeDataUri: response.media[0].url};
     } catch (e) {
-      console.error("[QR_GEN] AI Generation Error:", e);
+      console.error("AI Gen Error", e);
     }
 
-    // Fallback to the scannable base QR if AI styling fails
     return {qrCodeDataUri: baseQrDataUri};
   }
 );
