@@ -6,9 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Search, Shield, Trash2, ExternalLink, BarChart3, Users, QrCode as QrIcon, Loader2, AlertCircle } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Search, Shield, Trash2, ExternalLink, QrCode as QrIcon, Loader2, AlertCircle } from "lucide-react";
 import { useFirestore, useCollection, useMemoFirebase, errorEmitter, FirestorePermissionError } from "@/firebase";
-import { collectionGroup, query, orderBy, doc, deleteDoc } from "firebase/firestore";
+import { collectionGroup, query, orderBy, doc, deleteDoc, updateDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -40,6 +41,29 @@ export default function AdminPage() {
         const permissionError = new FirestorePermissionError({
           path: qrRef.path,
           operation: 'delete',
+        });
+        errorEmitter.emit('permission-error', permissionError);
+      });
+  };
+
+  const handleToggleStatus = (qr: any, checked: boolean) => {
+    if (!db) return;
+    const newStatus = checked ? 'active' : 'inactive';
+    const qrRef = doc(db, 'users', qr.userId, 'qr_codes', qr.id);
+    
+    // Non-blocking update pattern
+    updateDoc(qrRef, { status: newStatus })
+      .then(() => {
+        toast({ 
+          title: "Status Updated", 
+          description: `QR Code is now ${newStatus}.` 
+        });
+      })
+      .catch(async (err) => {
+        const permissionError = new FirestorePermissionError({
+          path: qrRef.path,
+          operation: 'update',
+          requestResourceData: { status: newStatus }
         });
         errorEmitter.emit('permission-error', permissionError);
       });
@@ -141,7 +165,7 @@ export default function AdminPage() {
                   <TableHead>Document ID</TableHead>
                   <TableHead>Title & URL</TableHead>
                   <TableHead>Created</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Status Control</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -189,9 +213,15 @@ export default function AdminPage() {
                         {qr.createdAt?.toDate?.() ? qr.createdAt.toDate().toLocaleDateString() : 'Just now'}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={qr.status === 'active' ? 'secondary' : 'outline'}>
-                          {qr.status || 'active'}
-                        </Badge>
+                        <div className="flex items-center gap-3">
+                          <Switch 
+                            checked={qr.status === 'active'} 
+                            onCheckedChange={(checked) => handleToggleStatus(qr, checked)}
+                          />
+                          <Badge variant={qr.status === 'active' ? 'secondary' : 'outline'}>
+                            {qr.status || 'active'}
+                          </Badge>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button 

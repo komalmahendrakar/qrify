@@ -7,22 +7,6 @@ rules_version = '2';
  * This ruleset implements a strict user-ownership model combined with administrative 
  * overrides. Security is enforced primarily through the hierarchical path structure 
  * (/users/{userId}/...) and verified against Firebase Authentication UIDs.
- * 
- * Data Structure:
- * - /users/{userId}: Root document for each user.
- * - /users/{userId}/qr_codes/{qrCodeId}: Private subcollection for user-generated QR codes.
- * - /roles_admin/{adminId}: A lookup collection to identify users with administrative privileges.
- * 
- * Key Security Decisions:
- * 1. Authorization Independence: QR code documents denormalize the 'userId' field to allow 
- *    fast, independent security checks without parent document lookups.
- * 2. Administrative Access: Users whose UIDs exist in the '/roles_admin' collection are 
- *    granted read-only access to all user data for support and oversight.
- * 3. Public Sharing: QR codes can be read by anyone if they have the direct path (via share link).
- * 4. Structural Segregation: User data is kept in subcollections to simplify listing 
- *    logic and prevent accidental data leakage between users.
- * 5. Relational Integrity: On creation of a QR code, the rules enforce that the internal 
- *    'userId' field matches the authenticated user's ID and the document path.
  */
 
 service cloud.firestore {
@@ -80,8 +64,10 @@ service cloud.firestore {
         // Listing is restricted to owners and admins
         allow list: if isOwner(userId) || isAdmin();
         allow create: if isOwner(userId) && request.resource.data.userId == userId;
-        allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
-        allow delete: if isExistingOwner(userId);
+        // Admins can update status, owners can update everything except userId
+        allow update: if (isExistingOwner(userId) && request.resource.data.userId == resource.data.userId) || isAdmin();
+        // Admins and owners can delete
+        allow delete: if isExistingOwner(userId) || isAdmin();
       }
     }
 
