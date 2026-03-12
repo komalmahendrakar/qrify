@@ -1,10 +1,9 @@
-
 rules_version = '2';
 
 /**
  * FIRESTORE SECURITY RULES
  * - Public: Read access for QR code redirection (via Collection Group) and scan tracking.
- * - Users: Manage their own QR code history (create/read).
+ * - Users: Manage their own QR code history.
  * - Admin: Full Management of all records and roles.
  */
 
@@ -21,20 +20,19 @@ service cloud.firestore {
     }
 
     // 1. GLOBAL COLLECTION GROUP RULES
-    // Crucial for /r/[qrId] redirect engine which uses collectionGroup queries.
-    // This match pattern is required for collection group security.
+    // MUST be top-level for collectionGroup queries to work correctly.
+    // This allows the /r/[qrId] engine to look up QR codes by ID for anyone.
     match /{path=**}/qr_codes/{qrCodeId} {
-      // Allow public to find a QR code by ID and read its details for redirection.
+      // Allow public READ (get/list) so the redirect engine can find records.
       allow read: if true;
       
-      // Allow creation for anyone (anonymous or signed in) so they can generate codes.
+      // Allow public CREATE so users can generate codes anonymously.
       allow create: if true;
 
-      // Allow public to update scan counts ONLY if the code is active.
-      // We explicitly check status and ensure ONLY analytics fields are modified.
+      // Allow public UPDATE only for tracking scans. 
+      // We check that only analytics fields are being modified.
       allow update: if (
-        resource.data.status == 'active' 
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalScans', 'lastScannedAt'])
       ) || isAdmin();
 
       // Only admins can delete records globally.
@@ -45,8 +43,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow get, create, update: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
       
-      // Users can list their own codes in the dashboard.
       match /qr_codes/{qrCodeId} {
+        // Users can list their own codes.
         allow list: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
       }
     }
